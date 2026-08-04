@@ -17,6 +17,7 @@ dist-ssr
 !.vscode/extensions.json
 .idea
 .DS_Store
+Thumbs.db
 *.suo
 *.ntvs*
 *.njsproj
@@ -24,4 +25,6 @@ dist-ssr
 *.sw?
 /target
 .env
-.DS_Store
+.env.local
+
+

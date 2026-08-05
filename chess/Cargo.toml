@@ -8,7 +8,7 @@ axum = "0.7"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-uuid = { version = "=1", features = ["v4", "serde"] } # ローカルなら"1"でOK
+uuid = { version = "=1.10", features = ["v4", "serde"] } # ローカルなら"1"でOK
 tower-http = { version = "0.5", features = ["cors", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

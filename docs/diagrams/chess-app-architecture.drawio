@@ -1,0 +1,49 @@
+<mxfile host="65bd71144e">
+    <diagram name="Architecture" id="chess-app-architecture">
+        <mxGraphModel dx="702" dy="439" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="650" background="none" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="client" value="Browser&#xa;(React + Vite)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="60" y="260" width="160" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="dockerBox" value="Docker" style="rounded=1;whiteSpace=wrap;html=1;verticalAlign=top;fillColor=none;strokeColor=#666666;dashed=1;fontStyle=1;spacingTop=6;" parent="1" vertex="1">
+                    <mxGeometry x="360" y="120" width="420" height="360" as="geometry"/>
+                </mxCell>
+                <mxCell id="server" value="Axum Server&#xa;(Rust)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+                    <mxGeometry x="420" y="180" width="160" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="ws" value="WebSocket Handler&#xa;(対戦通信)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+                    <mxGeometry x="620" y="180" width="140" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="shakmaty" value="shakmaty&#xa;(ルール・盤面管理)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+                    <mxGeometry x="420" y="300" width="160" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="sqlx" value="sqlx" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+                    <mxGeometry x="620" y="300" width="140" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="db" value="PostgreSQL" style="rounded=1;whiteSpace=wrap;html=1;shape=cylinder3;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+                    <mxGeometry x="620" y="410" width="140" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="e1" value="HTTP" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="client" target="server" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e2" value="WebSocket" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;" parent="1" source="client" target="ws" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="server" target="ws" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="server" target="shakmaty" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="server" target="sqlx" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e6" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" parent="1" source="sqlx" target="db" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

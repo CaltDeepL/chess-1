@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::auth::extract_user_id;
 use crate::models::{GameCreatedResponse, GameRow, GameStateResponse, MoveRequest};
-use crate::state::AppState;
+use crate::state::{AppState, GameEvent};
 
 /// POST /games
 pub async fn create_game(
@@ -154,6 +154,12 @@ pub async fn resign_game(
 
     tracing::info!(%id, %user_id, result, "game resigned");
 
+    // WebSocket購読者へ終局を配信(購読者がいなくてもエラーにはしない)
+    let _ = state.game_channel(id).await.send(GameEvent::GameOver {
+        result: result.to_string(),
+        end_reason: "resignation".to_string(),
+    });
+
     Ok(Json(serde_json::json!({ "game_id": id, "status": "finished", "result": result })))
 }
 
@@ -210,6 +216,8 @@ pub async fn make_move(
 
             let fen_after = position_to_fen(position);
             let move_number = position.fullmoves().get() as i32;
+            let is_check = position.is_check();
+            let is_game_over = position.is_game_over();
 
             if let Err(e) = sqlx::query(
                 "INSERT INTO moves (game_id, move_number, uci, fen_after) VALUES ($1, $2, $3, $4)",
@@ -224,7 +232,15 @@ pub async fn make_move(
                 tracing::error!(error = %e, %id, "failed to insert move");
             }
 
-            if position.is_game_over() {
+            // 盤面更新後、WebSocket購読者へ指し手を配信(購読者がいなくてもエラーにはしない)
+            let _ = state.game_channel(id).await.send(GameEvent::Move {
+                fen: fen_after.clone(),
+                uci: payload.uci.clone(),
+                is_check,
+                is_game_over,
+            });
+
+            if is_game_over {
                 let (result, end_reason) = determine_outcome(position);
 
                 if let Err(e) = sqlx::query(
@@ -241,6 +257,12 @@ pub async fn make_move(
                 }
 
                 tracing::info!(%id, result, end_reason, "game finished");
+
+                // 終局もあわせて配信
+                let _ = state.game_channel(id).await.send(GameEvent::GameOver {
+                    result: result.to_string(),
+                    end_reason: end_reason.to_string(),
+                });
             }
 
             tracing::info!(%id, %user_id, uci = %payload.uci, "move applied");
@@ -248,8 +270,8 @@ pub async fn make_move(
             Ok(Json(GameStateResponse {
                 game_id: id,
                 fen: fen_after,
-                is_check: position.is_check(),
-                is_game_over: position.is_game_over(),
+                is_check,
+                is_game_over,
             }))
         }
         Err(e) => Err((StatusCode::BAD_REQUEST, format!("指し手を適用できません: {}", e))),

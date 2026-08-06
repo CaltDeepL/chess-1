@@ -1,16 +1,22 @@
 [package]
-name = "chess"
+name = "chess-server"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 axum = "0.7"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-uuid = { version = "=1.10", features = ["v4", "serde"] } # ローカルなら"1"でOK
+uuid = { version = "=1.10.0", features = ["v4", "serde"] }
 tower-http = { version = "0.5", features = ["cors", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 shakmaty = "0.27"
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "macros"] }
+argon2 = "0.5"
+rand = "0.8"
+jsonwebtoken = "9"
+chrono = { version = "0.4", features = ["serde"] }
+dotenvy = "0.15"
 

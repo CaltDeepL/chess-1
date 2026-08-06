@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:16
+    container_name: chess-postgres
+    environment:
+      POSTGRES_USER: chess
+      POSTGRES_PASSWORD: chess
+      POSTGRES_DB: chess_db
+    ports:
+      - "5433:5432"
+    networks:
+      - chess-net
+    volumes:
+      - chess-db-data:/var/lib/postgresql/data
+
+  app:
+    build: .
+    container_name: chess-server
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgres://chess:chess@db:5432/chess_db
+    ports:
+      - "3000:3000"
+    networks:
+      - chess-net
+
+networks:
+  chess-net:
+
+volumes:
+  chess-db-data:

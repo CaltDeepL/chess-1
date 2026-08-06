@@ -19,6 +19,7 @@ use auth::{login, register};
 use routes::game::{create_game, get_game, join_game, make_move, resign_game};
 use routes::health::health_check;
 use state::AppState;
+use routes::ws::ws_handler;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -44,6 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         games: Arc::new(RwLock::new(HashMap::new())),
         db,
         jwt_secret: Arc::new(jwt_secret),
+        game_channels: Arc::new(RwLock::new(HashMap::new())),
     };
 
     let app = Router::new()
@@ -55,6 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/games/:id/join", post(join_game))
         .route("/games/:id/move", post(make_move))
         .route("/games/:id/resign", post(resign_game))
+        .route("/ws/games/:id", get(ws_handler))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state);

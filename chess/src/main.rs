@@ -16,7 +16,7 @@ use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use auth::{login, register};
-use routes::game::{create_game, get_game, join_game, make_move, resign_game};
+use routes::game::{create_game, get_game, join_game, list_games, make_move, resign_game};
 use routes::health::health_check;
 use state::AppState;
 use routes::ws::ws_handler;
@@ -52,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/health", get(health_check))
         .route("/auth/register", post(register))
         .route("/auth/login", post(login))
-        .route("/games", post(create_game))
+        .route("/games", get(list_games).post(create_game))
         .route("/games/:id", get(get_game))
         .route("/games/:id/join", post(join_game))
         .route("/games/:id/move", post(make_move))

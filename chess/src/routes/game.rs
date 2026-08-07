@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     Json,
 };
@@ -7,8 +7,42 @@ use shakmaty::{fen::Fen, uci::UciMove, Chess, Color, EnPassantMode, Position};
 use uuid::Uuid;
 
 use crate::auth::extract_user_id;
-use crate::models::{GameCreatedResponse, GameRow, GameStateResponse, MoveRequest};
+use crate::models::{
+    GameCreatedResponse, GameDetailResponse, GameDetailRow, GameRow, GameStateResponse,
+    GameSummary, ListGamesQuery, MoveRequest,
+};
 use crate::state::{AppState, GameEvent};
+
+/// GET /games?status=waiting
+/// 対局一覧を取得する。statusを指定するとその状態の対局のみに絞り込む(未指定なら全件)。
+/// ロビーには基本的に status=waiting を指定して呼び出す想定。
+pub async fn list_games(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ListGamesQuery>,
+) -> Result<Json<Vec<GameSummary>>, (StatusCode, String)> {
+    extract_user_id(&headers, &state.jwt_secret)?;
+
+    let games = if let Some(status) = query.status {
+        sqlx::query_as::<_, GameSummary>(
+            "SELECT id, white_user_id, black_user_id, status::text AS status, fen, created_at \
+             FROM games WHERE status::text = $1 ORDER BY created_at DESC",
+        )
+        .bind(status)
+        .fetch_all(&state.db)
+        .await
+    } else {
+        sqlx::query_as::<_, GameSummary>(
+            "SELECT id, white_user_id, black_user_id, status::text AS status, fen, created_at \
+             FROM games ORDER BY created_at DESC",
+        )
+        .fetch_all(&state.db)
+        .await
+    }
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DBエラー: {}", e)))?;
+
+    Ok(Json(games))
+}
 
 /// POST /games
 pub async fn create_game(
@@ -40,18 +74,33 @@ pub async fn create_game(
 }
 
 /// GET /games/:id
+/// 対局の参加者情報(white_user_id/black_user_id/status/result)と現在の盤面をあわせて返す。
 pub async fn get_game(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
-) -> Result<Json<GameStateResponse>, (StatusCode, String)> {
+) -> Result<Json<GameDetailResponse>, (StatusCode, String)> {
+    let row = sqlx::query_as::<_, GameDetailRow>(
+        "SELECT white_user_id, black_user_id, status::text AS status, result::text AS result \
+         FROM games WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DBエラー: {}", e)))?
+    .ok_or((StatusCode::NOT_FOUND, "対局が見つかりません".to_string()))?;
+
     let games = state.games.read().await;
 
     let position = games
         .get(&id)
         .ok_or((StatusCode::NOT_FOUND, "対局が見つかりません".to_string()))?;
 
-    Ok(Json(GameStateResponse {
+    Ok(Json(GameDetailResponse {
         game_id: id,
+        white_user_id: row.white_user_id,
+        black_user_id: row.black_user_id,
+        status: row.status,
+        result: row.result,
         fen: position_to_fen(position),
         is_check: position.is_check(),
         is_game_over: position.is_game_over(),

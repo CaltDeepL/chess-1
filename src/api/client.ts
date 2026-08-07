@@ -1,5 +1,13 @@
 const BASE_URL = "http://localhost:3000"; // 開発時のAxumサーバーのアドレス
 
+// BASE_URLをWebSocket用のスキーム(ws/wss)に変換した値。
+// 本番デプロイ時にBASE_URLだけ変更すればHTTP/WSの両方に反映される。
+const WS_BASE_URL = BASE_URL.replace(/^http/, "ws");
+
+function wsUrl(path: string): string {
+  return `${WS_BASE_URL}${path}`;
+}
+
 interface ApiError {
   status: number;
   message: string;
@@ -44,5 +52,7 @@ export const apiClient = {
   post: <T>(path: string, body: unknown, token?: string | null) =>
     request<T>(path, { method: "POST", body: JSON.stringify(body) }, token),
 };
+
+export { wsUrl };
 
 export type { ApiError };

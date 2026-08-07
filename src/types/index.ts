@@ -12,15 +12,6 @@ export interface AuthResponse {
 export type GameStatus = "waiting" | "in_progress" | "finished";
 export type GameResult = "white_win" | "black_win" | "draw" | null;
 
-export interface Game {
-  id: string;
-  whiteUserId: string;
-  blackUserId: string | null;
-  status: GameStatus;
-  result: GameResult;
-  fen: string;
-}
-
 export interface MoveRequest {
   uci: string;
 }
@@ -31,9 +22,21 @@ export interface GameCreatedResponse {
   fen: string;
 }
 
-// GET /games/:id, POST /games/:id/move のレスポンス
+// POST /games/:id/move のレスポンス
 export interface GameStateResponse {
   game_id: string;
+  fen: string;
+  is_check: boolean;
+  is_game_over: boolean;
+}
+
+// GET /games/:id のレスポンス
+export interface GameDetailResponse {
+  game_id: string;
+  white_user_id: string;
+  black_user_id: string | null;
+  status: GameStatus;
+  result: GameResult;
   fen: string;
   is_check: boolean;
   is_game_over: boolean;
@@ -56,3 +59,12 @@ export interface ResignGameResponse {
 export type GameEvent =
   | { type: "move"; fen: string; uci: string; is_check: boolean; is_game_over: boolean }
   | { type: "game_over"; result: GameResult; end_reason: string };
+
+export interface GameSummary {
+  id: string;
+  white_user_id: string;
+  black_user_id: string | null;
+  status: GameStatus;
+  fen: string;
+  created_at: string;
+}

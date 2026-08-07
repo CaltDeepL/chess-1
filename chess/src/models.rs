@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -60,4 +61,44 @@ pub struct GameStateResponse {
     pub fen: String,
     pub is_check: bool,
     pub is_game_over: bool,
+}
+
+/// GET /games/:id でDBから取得する参加者・状態情報
+#[derive(sqlx::FromRow)]
+pub struct GameDetailRow {
+    pub white_user_id: Uuid,
+    pub black_user_id: Option<Uuid>,
+    pub status: String,
+    pub result: Option<String>,
+}
+
+/// GET /games/:id のレスポンス
+#[derive(Serialize)]
+pub struct GameDetailResponse {
+    pub game_id: Uuid,
+    pub white_user_id: Uuid,
+    pub black_user_id: Option<Uuid>,
+    pub status: String,
+    pub result: Option<String>,
+    pub fen: String,
+    pub is_check: bool,
+    pub is_game_over: bool,
+}
+
+/// GET /games のクエリパラメータ
+#[derive(Deserialize)]
+pub struct ListGamesQuery {
+    /// 指定時はこのstatusの対局のみに絞り込む(例: "waiting")。未指定なら全件
+    pub status: Option<String>,
+}
+
+/// GET /games のレスポンス1件分
+#[derive(Serialize, sqlx::FromRow)]
+pub struct GameSummary {
+    pub id: Uuid,
+    pub white_user_id: Uuid,
+    pub black_user_id: Option<Uuid>,
+    pub status: String,
+    pub fen: String,
+    pub created_at: DateTime<Utc>,
 }

@@ -45,4 +45,7 @@ pub enum GameEvent {
         result: String,
         end_reason: String,
     },
+    OpponentJoined {
+        user_id: Uuid,
+    },
 }

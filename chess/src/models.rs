@@ -34,6 +34,13 @@ pub struct UserRow {
     pub password_hash: String,
 }
 
+/// GET /users/:id のレスポンス(公開してよい情報のみ)
+#[derive(Serialize, sqlx::FromRow)]
+pub struct UserPublicResponse {
+    pub id: Uuid,
+    pub username: String,
+}
+
 /// gamesテーブルの行に対応する型(join_game/make_moveで使用)
 #[derive(sqlx::FromRow)]
 pub struct GameRow {
@@ -101,4 +108,11 @@ pub struct GameSummary {
     pub status: String,
     pub fen: String,
     pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct MoveRow {
+    pub move_number: i32,
+    pub uci: String,
+    pub fen_after: String,
 }

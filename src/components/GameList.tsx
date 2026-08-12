@@ -14,25 +14,32 @@ export default function GameList({ games, currentUserId, onJoin, joiningId }: Ga
   }
 
   return (
-    <ul className="game-list">
+    <div className="game-tile-grid">
       {games.map((game) => {
         const isOwnGame = game.white_user_id === currentUserId;
         return (
-          <li key={game.id} className="game-list-item">
-            <span>対局 #{game.id.slice(0, 8)}</span>
+          <div key={game.id} className="game-tile">
+            <div className="game-tile-id">#{game.id.slice(0, 8)}</div>
+            <div className="game-tile-meta">
+              <span className="game-tile-dot" />
+              対局相手を待っています
+            </div>
             {isOwnGame ? (
-              <Link to={`/games/${game.id}`}>自分の対局を開く</Link>
+              <Link to={`/games/${game.id}`} className="game-tile-action">
+                自分の対局を開く
+              </Link>
             ) : (
               <button
+                className="game-tile-action"
                 onClick={() => onJoin(game.id)}
                 disabled={joiningId === game.id}
               >
                 {joiningId === game.id ? "参加中..." : "参加する"}
               </button>
             )}
-          </li>
+          </div>
         );
       })}
-    </ul>
+    </div>
   );
 }

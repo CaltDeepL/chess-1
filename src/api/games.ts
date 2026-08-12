@@ -5,6 +5,7 @@ import type {
   GameStateResponse,
   GameSummary,
   JoinGameResponse,
+  MoveRow,
   ResignGameResponse,
 } from "../types";
 
@@ -28,8 +29,11 @@ export function resignGame(gameId: string, token: string) {
   return apiClient.post<ResignGameResponse>(`/games/${gameId}/resign`, {}, token);
 }
 
-
 export function getGames(token: string, status?: string) {
   const query = status ? `?status=${status}` : "";
   return apiClient.get<GameSummary[]>(`/games${query}`, token);
+}
+
+export function getMoves(id: string, token: string) {
+  return apiClient.get<MoveRow[]>(`/games/${id}/moves`, token);
 }

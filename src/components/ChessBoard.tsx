@@ -79,6 +79,14 @@ export default function ChessBoard({
     },
     lightSquareStyle,
     darkSquareStyle,
+    // react-chessboard内部のスライドアニメーション処理は、対局ページに
+    // 直接アクセスして最初から途中局面のFENを描画するようなケースで、
+    // アニメーション先マスのDOM幅測定に失敗し「Square width not found」を
+    // 投げることがある(react-chessboard側の既知の問題)。駒の移動はWSの
+    // move/game_overイベントで盤面が飛び飛びに更新される設計上、スライド
+    // アニメーション自体の価値も薄いため、アニメーションごと無効化して
+    // この不具合の発生経路を根本から断つ。
+    showAnimations: false,
     // ドラッグ開始: つまんだ駒がどこへ動かせるかをハイライトする。
     // 実際のプロパティ名はライブラリの型定義(ChessboardOptions)で確認したところ
     // onPieceDragBegin/onPieceDragEndではなく onPieceDrag/onPieceDragCancel だった。

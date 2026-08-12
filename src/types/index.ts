@@ -3,6 +3,12 @@ export interface User {
   username: string;
 }
 
+// GET /users/:id のレスポンス
+export interface UserPublicResponse {
+  id: string;
+  username: string;
+}
+
 // バックエンドの /auth/register, /auth/login レスポンス(user_idのみ、usernameは含まない)
 export interface AuthResponse {
   user_id: string;
@@ -58,7 +64,8 @@ export interface ResignGameResponse {
 // WebSocketで受信するイベント(バックエンドのGameEventに対応、フィールド名はJSONそのまま)
 export type GameEvent =
   | { type: "move"; fen: string; uci: string; is_check: boolean; is_game_over: boolean }
-  | { type: "game_over"; result: GameResult; end_reason: string };
+  | { type: "game_over"; result: GameResult; end_reason: string }
+  | { type: "opponent_joined"; user_id: string };
 
 export interface GameSummary {
   id: string;
@@ -67,4 +74,11 @@ export interface GameSummary {
   status: GameStatus;
   fen: string;
   created_at: string;
+}
+
+
+export interface MoveRow {
+  move_number: number;
+  uci: string;
+  fen_after: string;
 }

@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::auth::extract_user_id;
 use crate::models::{
     GameCreatedResponse, GameDetailResponse, GameDetailRow, GameRow, GameStateResponse,
-    GameSummary, ListGamesQuery, MoveRequest,
+    GameSummary, ListGamesQuery, MoveRequest, MoveRow,
 };
 use crate::state::{AppState, GameEvent};
 
@@ -147,6 +147,12 @@ pub async fn join_game(
     }
 
     tracing::info!(%id, %user_id, "player joined game");
+
+    // 先に接続している側(通常は対局作成者)へ、対戦相手が参加したことを通知する
+    let _ = state
+        .game_channel(id)
+        .await
+        .send(GameEvent::OpponentJoined { user_id });
 
     Ok(Json(serde_json::json!({ "game_id": id, "status": "in_progress" })))
 }
@@ -347,4 +353,24 @@ fn determine_outcome(position: &Chess) -> (&'static str, &'static str) {
     } else {
         ("draw", "other")
     }
+}
+
+/// GET /games/:id/moves
+/// 対局の指し手履歴(棋譜)を手数順に取得する。
+pub async fn get_moves(
+    State(state): State<AppState>,
+    Path(game_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<MoveRow>>, (StatusCode, String)> {
+    extract_user_id(&headers, &state.jwt_secret)?;
+
+    let moves = sqlx::query_as::<_, MoveRow>(
+        "SELECT move_number, uci, fen_after FROM moves WHERE game_id = $1 ORDER BY move_number ASC",
+    )
+    .bind(game_id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DBエラー: {}", e)))?;
+
+    Ok(Json(moves))
 }

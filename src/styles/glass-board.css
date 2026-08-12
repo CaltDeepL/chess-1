@@ -1,0 +1,205 @@
+/* ガラス/クリスタル調のチェス盤スタイル(グロー付き・レスポンシブ) */
+
+.glass-board-frame {
+  position: relative;
+  display: inline-block;
+  /* スマホでの指ドラッグ中にページスクロールが競合して駒を離してしまうのを防ぐ */
+  touch-action: none;
+
+  /* 画面サイズに応じて伸縮しつつ、常に正方形を維持する。
+     92vw/92vh のうち小さい方を基準にし、上限は720pxで頭打ち。
+     数値は好みで調整可能。 */
+  width: min(92vw, 92vh, 720px);
+  aspect-ratio: 1 / 1;
+  box-sizing: border-box;
+
+  padding: clamp(8px, 2.5%, 20px);
+  border-radius: 20px;
+  background: linear-gradient(160deg, rgba(20, 40, 80, 0.55), rgba(5, 10, 25, 0.75));
+
+  box-shadow:
+    0 0 20px 4px rgba(90, 170, 255, 0.35),
+    0 0 60px 10px rgba(90, 170, 255, 0.2),
+    inset 0 1px 1px rgba(255, 255, 255, 0.15);
+
+  animation: glass-board-pulse 4s ease-in-out infinite;
+}
+
+@keyframes glass-board-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 20px 4px rgba(90, 170, 255, 0.35),
+      0 0 60px 10px rgba(90, 170, 255, 0.2),
+      inset 0 1px 1px rgba(255, 255, 255, 0.15);
+  }
+  50% {
+    box-shadow:
+      0 0 30px 8px rgba(90, 170, 255, 0.5),
+      0 0 90px 18px rgba(90, 170, 255, 0.3),
+      inset 0 1px 1px rgba(255, 255, 255, 0.2);
+  }
+}
+
+.glass-board-frame .glass-board-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(150, 200, 255, 0.4);
+}
+
+/* react-chessboard の customLightSquareStyle / customDarkSquareStyle に渡す値 (JS側) */
+/*
+const lightSquareStyle = {
+  background: "linear-gradient(135deg, rgba(210,230,255,0.55), rgba(180,210,245,0.25))",
+  backdropFilter: "blur(6px)",
+};
+const darkSquareStyle = {
+  background: "linear-gradient(135deg, rgba(30,55,110,0.75), rgba(10,20,50,0.55))",
+  backdropFilter: "blur(6px)",
+};
+*/
+
+/* 盤面全体にほんのり反射のような光沢を重ねる */
+.glass-board-inner::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    120deg,
+    rgba(255, 255, 255, 0.12) 0%,
+    rgba(255, 255, 255, 0) 30%
+  );
+}
+
+/* グリッド線をうっすら光らせて「発光しているガラス」感を強調したい場合 */
+.glass-board-inner {
+  filter: drop-shadow(0 0 6px rgba(120, 190, 255, 0.25));
+}
+
+/* Unicodeチェス記号をガラス調に見せるCSS(UnicodePieces.tsx用) */
+
+/* squareStyle(options経由、全マス共通)に containerType: "inline-size" を
+   渡すことで、各マスがそれぞれ「コンテナ」になり、
+   中の駒がマス自身の実寸(cqw単位)に応じて自動でスケールするようになる。
+   overflow: hidden は駒のグローがマス境界を越えて滲むのを防ぐため。 */
+
+.glass-piece {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  line-height: 1;
+  user-select: none;
+  cursor: grab;
+
+  /* 固定px指定(60px)をやめ、マス自身の幅(コンテナクエリ幅)に対する割合で指定。
+     盤面がリサイズされてマスの実寸が変わると、この値も自動で追従する。 */
+  font-size: 68cqw;
+
+  /* テキストにグラデーションを乗せて塗りつぶす */
+  background: linear-gradient(180deg, var(--glass-top), var(--glass-bottom));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+
+  /* 縁取りで輪郭をはっきりさせる(視認性確保)。
+     太さも相対単位にしておくと、極端に小さい盤面でも縁が潰れない。 */
+  -webkit-text-stroke: 0.015em var(--glass-stroke);
+
+  /* ガラスの光沢っぽい影 + ほんのり発光。
+     ぼかし半径も相対単位(cqw)にしておくと小さい盤面で滲みすぎない。 */
+  filter:
+    drop-shadow(0 0.03em 0.03em rgba(0, 0, 0, 0.35))
+    drop-shadow(0 0 1.5cqw var(--glass-glow));
+}
+
+.glass-piece--w {
+  --glass-top: rgba(240, 248, 255, 0.98);
+  --glass-bottom: rgba(160, 200, 235, 0.55);
+  --glass-stroke: rgba(90, 140, 190, 0.9);
+  --glass-glow: rgba(140, 190, 255, 0.4);
+}
+
+.glass-piece--b {
+  --glass-top: rgba(90, 105, 125, 0.98);
+  --glass-bottom: rgba(20, 28, 40, 0.7);
+  --glass-stroke: rgba(10, 14, 22, 0.95);
+  --glass-glow: rgba(60, 90, 130, 0.5);
+}
+
+.glass-piece:active {
+  transform: scale(1.08);
+  filter:
+    drop-shadow(0 0.04em 0.04em rgba(0, 0, 0, 0.4))
+    drop-shadow(0 0 3cqw var(--glass-glow));
+}
+
+/* プロモーション駒種選択UI */
+
+.game-board-area {
+  position: relative;
+  display: inline-block;
+}
+
+.promotion-picker-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 10, 25, 0.55);
+  border-radius: 20px;
+  z-index: 20;
+}
+
+.promotion-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 24px;
+  border-radius: 12px;
+  background: linear-gradient(160deg, rgba(20, 40, 80, 0.95), rgba(5, 10, 25, 0.95));
+  box-shadow:
+    0 0 20px 4px rgba(90, 170, 255, 0.35),
+    inset 0 1px 1px rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(150, 200, 255, 0.4);
+  color: rgba(230, 240, 255, 0.9);
+}
+
+.promotion-picker-choices {
+  display: flex;
+  gap: 8px;
+}
+
+.promotion-piece-button {
+  width: 56px;
+  height: 56px;
+  font-size: 36px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid rgba(150, 200, 255, 0.4);
+  background: linear-gradient(135deg, rgba(30, 55, 110, 0.75), rgba(10, 20, 50, 0.55));
+  cursor: pointer;
+}
+
+.promotion-piece-button:hover {
+  background: linear-gradient(135deg, rgba(50, 85, 160, 0.85), rgba(20, 40, 90, 0.7));
+}
+
+.promotion-picker-cancel {
+  background: none;
+  border: none;
+  color: rgba(200, 215, 235, 0.7);
+  cursor: pointer;
+  font-size: 14px;
+  text-decoration: underline;
+}

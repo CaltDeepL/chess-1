@@ -1,203 +1,154 @@
-# Chess Backend
+# Chess App
 
-学習用に構築しているオンライン対戦チェスアプリのバックエンドです。
-Rust + Axum でAPIサーバーを実装し、[shakmaty](https://github.com/niklasf/shakmaty) でチェスのルール判定を行います。
+学習・練習用のオンライン対戦チェスアプリ。Rust(Axum)製バックエンドとReact(SPA)製フロントエンドで、WebSocketによるリアルタイム対局を実現しています。
+
+## 特徴
+
+- ユーザー登録・ログイン(JWT認証)
+- 対局の作成・参加・一覧表示(ロビー、タイル表示・自動更新)
+- リアルタイム対局(WebSocketで指し手・投了・対局終了・相手参加を即時通知)
+- 合法手判定はshakmatyクレートに一任、フロントでも移動可能マスをハイライト表示
+- 投了、プロモーション(歩の昇格)、棋譜(指し手履歴)のサイドバー表示
+- ガラス調(グラスモルフィズム)デザイン、ダークモード、スマホ対応
+- 接続断・再接続の可視化(LEDインジケーター)と自動再接続、セッション切れの自動検知
 
 ## 技術スタック
 
-| 領域 | 技術 |
-|---|---|
-| 言語 | Rust |
-| Webフレームワーク | [axum](https://github.com/tokio-rs/axum)(WebSocket含む) |
-| 非同期ランタイム | [tokio](https://tokio.rs/) |
-| チェスルールエンジン | [shakmaty](https://github.com/niklasf/shakmaty) |
-| シリアライズ | serde / serde_json |
-| ID生成 | uuid |
-| ミドルウェア | tower-http (CORS, ログ) |
-| ログ | tracing / tracing-subscriber |
-| 永続化 | PostgreSQL + sqlx |
-| 認証 | ユーザー登録・ログインベース、JWT(jsonwebtoken) |
-| パスワードハッシュ | argon2 |
-| フロントエンド | React (Vite) *(別リポジトリ/別ディレクトリで構築予定)* |
+### バックエンド
+- Rust + Axum + tokio
+- [shakmaty](https://github.com/niklasf/shakmaty) — チェスルール・合法手・チェックメイト判定
+- sqlx + PostgreSQL — 対局・ユーザー・棋譜の永続化
+- argon2 — パスワードハッシュ化
+- jsonwebtoken — JWT発行・検証
+- Docker / docker-compose
+
+### フロントエンド
+- React 19 + Vite + TypeScript
+- react-router-dom — ルーティング
+- react-chessboard v5 — 盤面UI(ガラス調のカスタム駒セット)
+- 素の`fetch`ラッパー(APIクライアント自作)
 
 ## ディレクトリ構成
 
 ```
-chess/
-├── Cargo.toml
-├── Cargo.lock
-├── Dockerfile
-├── docker-compose.yml
+chess/                  # バックエンド(Rust)
+├── src/
+│   ├── main.rs          # 起動処理
+│   ├── state.rs          # AppState、GameEvent型
+│   ├── models.rs          # リクエスト/レスポンス型
+│   ├── auth.rs            # 認証ロジック
+│   └── routes/
+│       ├── health.rs
+│       ├── game.rs        # 対局関連ハンドラ
+│       ├── user.rs        # ユーザー公開情報
+│       └── ws.rs          # WebSocketハンドラ
 ├── migrations/
-│   └── 20260805202110_init.sql   # users / games / moves テーブル
+└── docker-compose.yml
+
+vite-project/            # フロントエンド(React)
 └── src/
-    ├── main.rs                    # エントリーポイント(env読み込み、DB接続、Router組み立て)
-    ├── state.rs                   # AppState、対局ごとのWebSocketブロードキャストチャンネル、GameEvent
-    ├── models.rs                  # リクエスト/レスポンス型、DB行の型
-    ├── auth.rs                    # register/login/JWT発行・検証、extract_user_id
-    └── routes/
-        ├── mod.rs
-        ├── health.rs              # 疎通確認用
-        ├── game.rs                # 対局作成・参加・投了・指し手のHTTP API
-        └── ws.rs                  # WebSocketエンドポイント(対局のリアルタイム配信)
+    ├── api/               # client.ts / auth.ts / games.ts / users.ts
+    ├── context/            # AuthContext / ToastContext
+    ├── hooks/              # useGameSocket
+    ├── pages/              # Home / Login / Register / Lobby / Game
+    ├── components/         # ChessBoard / GameList / MoveHistory / GameMenu / 他
+    └── styles/             # global.css / glass-board.css
 ```
-
-## 実装状況
-
-### 完了
-
-- [x] Axumサーバー(`/health`エンドポイント)
-- [x] shakmatyによるチェスルール判定の組み込み
-- [x] 対局セッションの共有状態管理(`Arc<RwLock<HashMap<Uuid, Chess>>>`)
-- [x] モジュール分割(`main.rs` / `state.rs` / `models.rs` / `auth.rs` / `routes/*`)
-- [x] ユーザー登録・ログイン(`POST /auth/register` / `POST /auth/login`、JWT発行、パスワードはargon2でハッシュ化)
-- [x] PostgreSQL永続化(sqlx導入、`users` / `games` / `moves` テーブル)
-- [x] 対局作成 API(`POST /games`、JWT認証必須、`games`テーブルへINSERT)
-- [x] 対局参加 API(`POST /games/:id/join`、対戦相手を`black_user_id`として登録)
-- [x] 対局状態取得 API(`GET /games/:id`)
-- [x] 指し手適用 API(`POST /games/:id/move`) — 参加者本人・手番チェックのうえ、UCI形式の指し手を検証して盤面を更新し、`moves`テーブルへ記録
-- [x] 投了エンドポイント(`POST /games/:id/resign`)
-- [x] 終局判定(チェックメイト・ステイルメイト・駒不足)時の`games`テーブル更新
-- [x] WebSocketエンドポイント(`GET /ws/games/:id`、接続後の最初のメッセージでトークン認証 → 参加者確認 → 指し手/投了/終局をリアルタイム配信)
-
-### 未着手
-
-- [ ] フロントエンド(React)との接続
-- [ ] 対局一覧・履歴の閲覧API
-- [ ] レーティング機能
-
-## 現在のAPIエンドポイント
-
-| メソッド | パス | 認証 | 説明 |
-|---|---|---|---|
-| `GET` | `/health` | 不要 | 疎通確認。`{"status":"ok"}` を返す |
-| `POST` | `/auth/register` | 不要 | ユーザー登録。`{username, password}` → `{user_id, token}` |
-| `POST` | `/auth/login` | 不要 | ログイン。`{username, password}` → `{user_id, token}` |
-| `POST` | `/games` | 必須 | 新規対局を作成(自分が白番)。対局IDと初期局面(FEN)を返す |
-| `GET` | `/games/:id` | 不要 | 対局の現在の盤面(FEN)・チェック状態・終局判定を取得 |
-| `POST` | `/games/:id/join` | 必須 | 対戦相手(黒番)として対局に参加 |
-| `POST` | `/games/:id/move` | 必須 | UCI形式(例: `"e2e4"`)の指し手を送信し、盤面を更新。参加者本人かつ手番が合っている場合のみ受け付ける |
-| `POST` | `/games/:id/resign` | 必須 | 投了。相手の勝ちとして対局を終了する |
-| `GET` | `/ws/games/:id` | 必須(WS) | WebSocket接続。接続後の最初のメッセージで認証し、以後その対局の更新をリアルタイム受信 |
-
-認証が必須のHTTPエンドポイントは `Authorization: Bearer <token>` ヘッダーで、WebSocketは接続後の最初のメッセージ `{"token": "..."}` でJWTを送る。
-
-### リクエスト例
-
-```bash
-# ユーザー登録
-curl -X POST http://localhost:3000/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"username": "alice", "password": "password123"}'
-
-# 対局作成(登録時に返るtokenを使用)
-curl -X POST http://localhost:3000/games \
-  -H "Authorization: Bearer <token>"
-
-# 対局参加(別ユーザーのtokenを使用)
-curl -X POST http://localhost:3000/games/{game_id}/join \
-  -H "Authorization: Bearer <token>"
-
-# 指し手を送信
-curl -X POST http://localhost:3000/games/{game_id}/move \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{"uci": "e2e4"}'
-
-# 投了
-curl -X POST http://localhost:3000/games/{game_id}/resign \
-  -H "Authorization: Bearer <token>"
-```
-
-WebSocketは接続後にまず認証メッセージを送る。
-
-```json
-{"token": "<token>"}
-```
-
-以後、指し手・終局イベントが順次届く。
-
-```json
-{"type":"move","fen":"...","uci":"e2e4","is_check":false,"is_game_over":false}
-{"type":"game_over","result":"black_win","end_reason":"resignation"}
-```
-
-## データベース設計
-
-[migrations/20260805202110_init.sql](chess/migrations/20260805202110_init.sql) で以下のスキーマを定義している。
-
-```sql
-CREATE TABLE users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    username TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TYPE game_status AS ENUM ('waiting', 'in_progress', 'finished');
-CREATE TYPE game_result AS ENUM ('white_win', 'black_win', 'draw');
-
-CREATE TABLE games (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    white_user_id UUID NOT NULL REFERENCES users(id),
-    black_user_id UUID REFERENCES users(id),
-    fen TEXT NOT NULL DEFAULT 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
-    status game_status NOT NULL DEFAULT 'waiting',
-    result game_result,
-    end_reason TEXT, -- 'checkmate' | 'resignation' | 'stalemate' など
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE moves (
-    id BIGSERIAL PRIMARY KEY,
-    game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-    move_number INTEGER NOT NULL,
-    uci TEXT NOT NULL,
-    fen_after TEXT NOT NULL,
-    played_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX idx_moves_game_id ON moves(game_id);
-```
-
-### 設計方針
-
-- **プレイヤー識別**: ユーザー登録・ログインベース(JWT認証)を採用。対局作成者が `white_user_id`、参加者が `black_user_id` に紐付く
-- **WebSocket認証**: ブラウザのWebSocket APIは任意ヘッダーを送れないため、接続後の最初のメッセージでトークンを送信して認証する方式を採用
-- **引き分け**: shakmaty側のルール判定(ステイルメイト、駒不足など)による結果は `game_result.draw` として残す。一方でプレイヤー同士が対話的に合意する「引き分け提案」機能は実装しない
-- **投了**: `POST /games/:id/resign` を用意し、対局の当事者のみが呼び出せるようにする。投了は `moves` テーブルには記録せず、`games.end_reason` に理由(`resignation`)を残す
-- **リアルタイム配信**: 対局ごとに `tokio::sync::broadcast` チャンネルを持ち、`make_move` / `resign_game` が指し手・投了・終局のたびにイベントを配信する
 
 ## セットアップ
 
-### Docker Composeで一式起動する場合
+### 前提
+- Docker / Docker Desktop
+- Node.js
+- Rust(ローカルでマイグレーションを実行する場合)
+
+### 1. バックエンド起動
 
 ```bash
+cd chess
+cp .env.example .env   # DATABASE_URL / JWT_SECRET を設定
 docker compose up -d --build
-sqlx migrate run
 ```
 
-`db`(PostgreSQL、ホスト側 `5433` 番)と `app`(`3000` 番)が起動する。
-
-### ローカルで `cargo run` する場合
+### 2. マイグレーション適用
 
 ```bash
-# DBだけDockerで起動
-docker compose up -d db
-
-# .envのDATABASE_URLがホスト公開ポート(5433)を指していることを確認
-cat .env
-
-# マイグレーション適用(初回のみ)
+# ホストから、.envのDATABASE_URL(ポート5433)経由で実行
 sqlx migrate run
-
-cargo run
 ```
 
-デフォルトで `0.0.0.0:3000` で起動する。ログレベルは `RUST_LOG` 環境変数で制御できる(未指定時は `chess_server=debug,tower_http=debug`)。`JWT_SECRET` は未設定の場合、開発用の固定値にフォールバックする(本番では必ず設定する)。
+### 3. フロントエンド起動
 
-## 開発環境メモ
+```bash
+cd vite-project
+npm install
+npm run dev
+```
 
-- ローカル開発環境(Mac)は Rust 1.96 を使用
-- DockerビルドイメージはRust 1.90以上が必要(依存クレートが`edition2024`を要求するため)
+`http://localhost:5174`(Viteのデフォルトから変更している場合あり)でアクセスできます。
+
+## API一覧
+
+| メソッド | パス | 認証 | 概要 |
+|---|---|---|---|
+| GET | `/health` | 不要 | 疎通確認 |
+| POST | `/auth/register` | 不要 | ユーザー登録 |
+| POST | `/auth/login` | 不要 | ログイン、JWT発行 |
+| GET | `/users/:id` | 必須 | ユーザー公開情報(id/username)取得 |
+| POST | `/games` | 必須 | 対局作成 |
+| GET | `/games` | 必須 | 対局一覧(`status`で絞り込み) |
+| GET | `/games/:id` | 必須 | 対局詳細取得 |
+| GET | `/games/:id/moves` | 必須 | 棋譜(指し手履歴)取得 |
+| POST | `/games/:id/join` | 必須 | 対局参加 |
+| POST | `/games/:id/move` | 必須 | 指し手送信(UCI形式) |
+| POST | `/games/:id/resign` | 必須 | 投了 |
+| GET | `/ws/games/:id` | 接続後メッセージで認証 | WebSocket、リアルタイム対局通知 |
+
+WebSocketは接続後、最初のメッセージで`{"token": "..."}`を送信して認証します(クエリパラメータ方式は不採用)。配信されるイベントは`Move` / `GameOver` / `OpponentJoined`の3種類です。
+
+## データベーススキーマ
+
+`users` / `games` / `moves` の3テーブル構成。`games.status`(`waiting`/`in_progress`/`finished`)と`games.result`(`white_win`/`black_win`/`draw`)はPostgreSQLのENUM型です。詳細は`chess/migrations/`を参照してください。
+
+## 実装状況
+
+### バックエンド
+- [x] ユーザー登録・ログイン(Argon2 + JWT)
+- [x] 対局作成・一覧・詳細取得
+- [x] 対局参加、指し手送信、投了
+- [x] 棋譜(moves)のDB記録・取得
+- [x] 終局判定・結果のDB反映
+- [x] WebSocketによるリアルタイム通知(指し手・投了・終局・相手参加)
+- [x] ユーザー公開情報エンドポイント
+- [x] モジュール分割済みのコード構成
+
+### フロントエンド
+- [x] 認証(ログイン・新規登録)
+- [x] ロビー(タイル表示・自動更新・作成・参加)
+- [x] 対局画面(盤面・指し手送信・投了・手番表示)
+- [x] 合法手ハイライト表示
+- [x] プロモーション(歩の昇格)対応
+- [x] 棋譜サイドバー
+- [x] 接続状態のリアルタイム表示(LED)・自動再接続
+- [x] 対戦相手名の表示・参加通知トースト
+- [x] 勝敗決定時のオーバーレイ表示
+- [x] エラーハンドリング(ネットワーク断の正規化、セッション切れの自動検知・ログアウト、ErrorBoundary)
+- [x] ガラス調デザイン・ダークモード・スマホ対応
+
+### 今後の課題
+- [ ] 本番デプロイ(構成案: バックエンド+フロントをRender、DBをNeonの無料枠で運用)
+- [ ] 2ブラウザでの通しE2Eの継続的な確認体制
+- [ ] 棋譜のSAN(標準代数記法)表示への対応(現状UCI表記)
+
+## 開発上の教訓
+
+開発を通じて繰り返し発生したバグには大きく2つの傾向があります。
+
+1. **ファイル内容の誤混入・保存漏れ**: 編集中に関数定義そのものが消える、別ファイル用のコードが誤って書き込まれる、といった構文崩れ。`tsc`/`cargo build`や実際のブラウザ確認でのみ発見できるケースが多い
+2. **API関数の引数順序の取り違え**: 特に全引数が`string`型の場合、型チェックをすり抜けて実行時バグとして顕在化する
+
+いずれも「実際にビルドし、ブラウザで動かして確認する」ことが発見の決め手になっています。
+
+## ライセンス
+
+学習目的の個人プロジェクトです。

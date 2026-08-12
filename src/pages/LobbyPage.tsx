@@ -29,10 +29,41 @@ export default function LobbyPage() {
     }
   }, [token]);
 
-  useEffect(() => {
-    fetchGames();
-  }, [fetchGames]);
+ useEffect(() => {
+  fetchGames();
 
+  let interval: ReturnType<typeof setInterval> | null = null;
+
+  function startPolling() {
+    if (interval) return;
+    interval = setInterval(fetchGames, 5000);
+  }
+
+  function stopPolling() {
+    if (interval) {
+      clearInterval(interval);
+      interval = null;
+    }
+  }
+
+  function handleVisibilityChange() {
+    if (document.hidden) {
+      stopPolling();
+    } else {
+      fetchGames();
+      startPolling();
+    }
+  }
+
+  startPolling();
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+
+  return () => {
+    stopPolling();
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+  };
+}, [fetchGames]);
+ 
   async function handleCreate() {
     if (!token) return;
     setIsCreating(true);

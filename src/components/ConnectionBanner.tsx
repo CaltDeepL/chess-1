@@ -1,7 +1,7 @@
-type SocketStatus = "connecting" | "reconnecting" | "open" | "closed" | "error";
+import type { ConnectionStatus } from "../hooks/useGameSocket";
 
 interface ConnectionBannerProps {
-  status: SocketStatus;
+  status: ConnectionStatus;
 }
 
 export default function ConnectionBanner({ status }: ConnectionBannerProps) {

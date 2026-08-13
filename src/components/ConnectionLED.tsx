@@ -1,10 +1,10 @@
-type SocketStatus = "connecting" | "reconnecting" | "open" | "closed" | "error";
+import type { ConnectionStatus } from "../hooks/useGameSocket";
 
 interface ConnectionLEDProps {
-  status: SocketStatus;
+  status: ConnectionStatus;
 }
 
-const LABELS: Record<SocketStatus, string> = {
+const LABELS: Record<ConnectionStatus, string> = {
   connecting: "接続中",
   reconnecting: "再接続中",
   open: "接続済み",

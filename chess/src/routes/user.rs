@@ -1,10 +1,10 @@
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
     Json,
 };
 use uuid::Uuid;
 
+use crate::errors::AppError;
 use crate::models::UserPublicResponse;
 use crate::state::AppState;
 
@@ -14,15 +14,14 @@ use crate::state::AppState;
 pub async fn get_user(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
-) -> Result<Json<UserPublicResponse>, (StatusCode, String)> {
+) -> Result<Json<UserPublicResponse>, AppError> {
     let user = sqlx::query_as::<_, UserPublicResponse>(
         "SELECT id, username FROM users WHERE id = $1",
     )
     .bind(id)
     .fetch_optional(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DBエラー: {}", e)))?
-    .ok_or((StatusCode::NOT_FOUND, "ユーザーが見つかりません".to_string()))?;
+    .await?
+    .ok_or_else(|| AppError::NotFound("ユーザーが見つかりません".to_string()))?;
 
     Ok(Json(user))
 }

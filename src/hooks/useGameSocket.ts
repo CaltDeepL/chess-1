@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { GameEvent } from "../types";
 import { wsUrl } from "../api/client";
 
-type ConnectionStatus = "connecting" | "open" | "reconnecting" | "closed" | "error";
+export type ConnectionStatus = "connecting" | "open" | "reconnecting" | "closed" | "error";
 
 interface UseGameSocketResult {
   status: ConnectionStatus;

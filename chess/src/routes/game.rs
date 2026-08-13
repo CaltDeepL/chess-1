@@ -1,12 +1,13 @@
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::HeaderMap,
     Json,
 };
 use shakmaty::{fen::Fen, uci::UciMove, Chess, Color, EnPassantMode, Position};
 use uuid::Uuid;
 
 use crate::auth::extract_user_id;
+use crate::errors::AppError;
 use crate::models::{
     GameCreatedResponse, GameDetailResponse, GameDetailRow, GameRow, GameStateResponse,
     GameSummary, ListGamesQuery, MoveRequest, MoveRow,
@@ -20,7 +21,7 @@ pub async fn list_games(
     State(state): State<AppState>,
     headers: HeaderMap,
     Query(query): Query<ListGamesQuery>,
-) -> Result<Json<Vec<GameSummary>>, (StatusCode, String)> {
+) -> Result<Json<Vec<GameSummary>>, AppError> {
     extract_user_id(&headers, &state.jwt_secret)?;
 
     let games = if let Some(status) = query.status {
@@ -38,8 +39,7 @@ pub async fn list_games(
         )
         .fetch_all(&state.db)
         .await
-    }
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DBエラー: {}", e)))?;
+    }?;
 
     Ok(Json(games))
 }
@@ -48,7 +48,7 @@ pub async fn list_games(
 pub async fn create_game(
     State(state): State<AppState>,
     headers: HeaderMap,
-) -> Result<Json<GameCreatedResponse>, (StatusCode, String)> {
+) -> Result<Json<GameCreatedResponse>, AppError> {
     let user_id = extract_user_id(&headers, &state.jwt_secret)?;
 
     let game_id = Uuid::new_v4();
@@ -63,7 +63,7 @@ pub async fn create_game(
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "failed to insert game");
-            (StatusCode::INTERNAL_SERVER_ERROR, "対局の作成に失敗しました".to_string())
+            AppError::Internal("対局の作成に失敗しました".to_string())
         })?;
 
     state.games.write().await.insert(game_id, position);
@@ -78,22 +78,21 @@ pub async fn create_game(
 pub async fn get_game(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
-) -> Result<Json<GameDetailResponse>, (StatusCode, String)> {
+) -> Result<Json<GameDetailResponse>, AppError> {
     let row = sqlx::query_as::<_, GameDetailRow>(
         "SELECT white_user_id, black_user_id, status::text AS status, result::text AS result \
          FROM games WHERE id = $1",
     )
     .bind(id)
     .fetch_optional(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DBエラー: {}", e)))?
-    .ok_or((StatusCode::NOT_FOUND, "対局が見つかりません".to_string()))?;
+    .await?
+    .ok_or_else(|| AppError::NotFound("対局が見つかりません".to_string()))?;
 
     let games = state.games.read().await;
 
     let position = games
         .get(&id)
-        .ok_or((StatusCode::NOT_FOUND, "対局が見つかりません".to_string()))?;
+        .ok_or_else(|| AppError::NotFound("対局が見つかりません".to_string()))?;
 
     Ok(Json(GameDetailResponse {
         game_id: id,
@@ -112,7 +111,7 @@ pub async fn join_game(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+) -> Result<Json<serde_json::Value>, AppError> {
     let user_id = extract_user_id(&headers, &state.jwt_secret)?;
 
     let game = sqlx::query_as::<_, GameRow>(
@@ -120,16 +119,15 @@ pub async fn join_game(
     )
     .bind(id)
     .fetch_optional(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DBエラー: {}", e)))?
-    .ok_or((StatusCode::NOT_FOUND, "対局が見つかりません".to_string()))?;
+    .await?
+    .ok_or_else(|| AppError::NotFound("対局が見つかりません".to_string()))?;
 
     if game.white_user_id == user_id {
-        return Err((StatusCode::BAD_REQUEST, "自分が作成した対局には参加できません".to_string()));
+        return Err(AppError::BadRequest("自分が作成した対局には参加できません".to_string()));
     }
 
     if game.black_user_id.is_some() {
-        return Err((StatusCode::CONFLICT, "この対局には既に対戦相手がいます".to_string()));
+        return Err(AppError::Conflict("この対局には既に対戦相手がいます".to_string()));
     }
 
     let result = sqlx::query(
@@ -139,11 +137,10 @@ pub async fn join_game(
     .bind(user_id)
     .bind(id)
     .execute(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DBエラー: {}", e)))?;
+    .await?;
 
     if result.rows_affected() == 0 {
-        return Err((StatusCode::CONFLICT, "この対局には既に対戦相手がいます".to_string()));
+        return Err(AppError::Conflict("この対局には既に対戦相手がいます".to_string()));
     }
 
     tracing::info!(%id, %user_id, "player joined game");
@@ -163,7 +160,7 @@ pub async fn resign_game(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+) -> Result<Json<serde_json::Value>, AppError> {
     let user_id = extract_user_id(&headers, &state.jwt_secret)?;
 
     let game = sqlx::query_as::<_, GameRow>(
@@ -171,20 +168,19 @@ pub async fn resign_game(
     )
     .bind(id)
     .fetch_optional(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DBエラー: {}", e)))?
-    .ok_or((StatusCode::NOT_FOUND, "対局が見つかりません".to_string()))?;
+    .await?
+    .ok_or_else(|| AppError::NotFound("対局が見つかりません".to_string()))?;
 
     // 参加者本人かどうかのチェック
     let is_white = user_id == game.white_user_id;
     let is_black = Some(user_id) == game.black_user_id;
     if !is_white && !is_black {
-        return Err((StatusCode::FORBIDDEN, "この対局の参加者ではありません".to_string()));
+        return Err(AppError::Forbidden("この対局の参加者ではありません".to_string()));
     }
 
     // 既に終了している対局への投了は無効
     if game.status == "finished" {
-        return Err((StatusCode::CONFLICT, "この対局は既に終了しています".to_string()));
+        return Err(AppError::Conflict("この対局は既に終了しています".to_string()));
     }
 
     // 投了した側の逆が勝者
@@ -197,11 +193,10 @@ pub async fn resign_game(
     .bind(result)
     .bind(id)
     .execute(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DBエラー: {}", e)))?;
+    .await?;
 
     if update_result.rows_affected() == 0 {
-        return Err((StatusCode::CONFLICT, "この対局は既に終了しています".to_string()));
+        return Err(AppError::Conflict("この対局は既に終了しています".to_string()));
     }
 
     // メモリ上の対局データも削除(進行中対局の管理対象から外す)
@@ -224,7 +219,7 @@ pub async fn make_move(
     Path(id): Path<Uuid>,
     headers: HeaderMap,
     Json(payload): Json<MoveRequest>,
-) -> Result<Json<GameStateResponse>, (StatusCode, String)> {
+) -> Result<Json<GameStateResponse>, AppError> {
     let user_id = extract_user_id(&headers, &state.jwt_secret)?;
 
     let game = sqlx::query_as::<_, GameRow>(
@@ -232,38 +227,37 @@ pub async fn make_move(
     )
     .bind(id)
     .fetch_optional(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DBエラー: {}", e)))?
-    .ok_or((StatusCode::NOT_FOUND, "対局が見つかりません".to_string()))?;
+    .await?
+    .ok_or_else(|| AppError::NotFound("対局が見つかりません".to_string()))?;
 
     if user_id != game.white_user_id && Some(user_id) != game.black_user_id {
-        return Err((StatusCode::FORBIDDEN, "この対局の参加者ではありません".to_string()));
+        return Err(AppError::Forbidden("この対局の参加者ではありません".to_string()));
     }
 
     let uci_move: UciMove = payload
         .uci
         .parse()
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("指し手の形式が不正です: {}", e)))?;
+        .map_err(|e| AppError::BadRequest(format!("指し手の形式が不正です: {}", e)))?;
 
     let mut games = state.games.write().await;
 
     let position = games
         .get_mut(&id)
-        .ok_or((StatusCode::NOT_FOUND, "対局が見つかりません".to_string()))?;
+        .ok_or_else(|| AppError::NotFound("対局が見つかりません".to_string()))?;
 
     let expected_user = match position.turn() {
         Color::White => game.white_user_id,
         Color::Black => game
             .black_user_id
-            .ok_or((StatusCode::CONFLICT, "対戦相手がまだ参加していません".to_string()))?,
+            .ok_or_else(|| AppError::Conflict("対戦相手がまだ参加していません".to_string()))?,
     };
     if user_id != expected_user {
-        return Err((StatusCode::FORBIDDEN, "あなたの手番ではありません".to_string()));
+        return Err(AppError::Forbidden("あなたの手番ではありません".to_string()));
     }
 
     let mv = uci_move
         .to_move(position)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("不正な指し手です: {}", e)))?;
+        .map_err(|e| AppError::BadRequest(format!("不正な指し手です: {}", e)))?;
 
     match position.clone().play(&mv) {
         Ok(new_position) => {
@@ -329,7 +323,7 @@ pub async fn make_move(
                 is_game_over,
             }))
         }
-        Err(e) => Err((StatusCode::BAD_REQUEST, format!("指し手を適用できません: {}", e))),
+        Err(e) => Err(AppError::BadRequest(format!("指し手を適用できません: {}", e))),
     }
 }
 
@@ -361,7 +355,7 @@ pub async fn get_moves(
     State(state): State<AppState>,
     Path(game_id): Path<Uuid>,
     headers: HeaderMap,
-) -> Result<Json<Vec<MoveRow>>, (StatusCode, String)> {
+) -> Result<Json<Vec<MoveRow>>, AppError> {
     extract_user_id(&headers, &state.jwt_secret)?;
 
     let moves = sqlx::query_as::<_, MoveRow>(
@@ -369,8 +363,7 @@ pub async fn get_moves(
     )
     .bind(game_id)
     .fetch_all(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DBエラー: {}", e)))?;
+    .await?;
 
     Ok(Json(moves))
 }

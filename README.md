@@ -7,12 +7,15 @@
 対局の合法手判定・手番管理・終局判定をサーバー側の権威として持ち、指し手・投了・終局・対戦相手の参加を WebSocket でリアルタイムに配信します。
 
 **デモ**: https://chess-frontend-0van.onrender.com
+**API ドキュメント**: https://test1-9t4t.onrender.com/docs
 
 `/register` からアカウントを作成し、ロビーで対局を作成すると、別のユーザーが参加した時点で対局が始まります。
 
+API は Swagger UI からブラウザ上で試せます。`POST /auth/register` でアカウントを作成し、返却されたトークンを右上の **Authorize** に入力してください。
+
 > 無料プランで稼働しているため、アクセスがない間はインスタンスが停止します。最初のリクエストは応答まで数十秒かかることがあります。
 
-> **ポートフォリオプロジェクトです。** 全27タスクを完了し、本番環境（Render + Neon）で稼働しています。CI が green のときだけデプロイが走る構成です。
+> **ポートフォリオプロジェクトです。** 全28タスクを完了し、本番環境（Render + Neon）で稼働しています。CI が green のときだけデプロイが走る構成です。
 
 ---
 
@@ -44,6 +47,7 @@
 | 棋譜（指し手履歴） | `GET /games/{id}/moves` |
 | リアルタイム対局通知 | `GET /ws/games/{id}` |
 | 疎通確認 | `GET /health` |
+| API 仕様 | `GET /openapi.json` `/docs` |
 
 フロントエンドは、ロビーのタイル表示と自動更新、合法手ハイライト、プロモーション（歩の昇格）、棋譜の SAN 表示、接続状態の LED インジケーター、勝敗オーバーレイ、スマホ対応を実装しています。
 
@@ -214,6 +218,23 @@ WHERE id = $2 AND black_user_id IS NULL
 
 更新行数が 0 なら「既に誰かが参加済み」として 409 を返します。アプリ側でロックを持つより、DB に判断を委ねるほうが確実です。
 
+### なぜ OpenAPI とルート定義を同じ場所に置くのか
+
+`utoipa-axum` の `OpenApiRouter` を使い、ルート登録とドキュメント生成をまとめています。
+
+```rust
+let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
+    .routes(routes!(routes::game::list_games, routes::game::create_game))
+    .routes(routes!(routes::game::join_game))
+    .split_for_parts();
+```
+
+`routes!()` に渡したハンドラがそのまま axum のルートになり、同時に `#[utoipa::path]` の情報から仕様が組み立てられます。ルートを追加したのにドキュメントを書き忘れる、パスを変更したのに仕様が古いまま、といった乖離が構造的に起きません。
+
+統合テストでもパス数の完全一致と、認証必須エンドポイントの `security` 宣言を検証しており、`#[utoipa::path]` の付与漏れがあるとテストが落ちます。
+
+なお Swagger UI 本体は `utoipa-swagger-ui` を使わず、CDN から読み込む 20 行程度の静的 HTML にしています。`utoipa-swagger-ui` はビルド時に UI の zip をダウンロードするため、CI とデプロイのたびにその時間がかかるためです。
+
 ---
 
 ## 技術スタック
@@ -229,6 +250,7 @@ WHERE id = $2 AND black_user_id IS NULL
 | 盤面 UI | react-chessboard v5（カスタム駒セット） |
 | コンテナ | Docker（マルチステージビルド） |
 | ホスティング | Render（Docker / Static Site）/ Neon（Postgres） |
+| API ドキュメント | utoipa / utoipa-axum（OpenAPI 3.1） |
 | CI / CD | GitHub Actions |
 
 ---
@@ -255,6 +277,19 @@ WHERE id = $2 AND black_user_id IS NULL
 `node_modules/react-chessboard` のソースを読んだところ、ドラッグ中の駒は `@dnd-kit` の `DragOverlay` 経由で `document.body` 直下に portal されていました。React のツリー上は盤面の子でも、**DOM ツリー上はコンテナの外に出ている**ため、cqw の基準を見失っていたわけです。
 
 盤面のマスと、portal される駒本体の両方に `container-type: inline-size` を設定して解決しました。検証は DOM に `pointerdown` / `pointermove` を直接発火させて `DragOverlay` の複製要素を生成し、`getComputedStyle` で font-size を実測しています（通常駒 ~51.78px に対しドラッグ中 51.765px）。
+
+### ドメインロジックの分離
+
+手番判定・終局判定・勝者決定は `domain/` に I/O を持たない純粋関数として切り出しています。
+
+```rust
+pub fn determine_outcome(position: &Chess) -> (&'static str, &'static str);
+pub fn winner_after_resign(resigning: Color) -> &'static str;
+pub fn role_of(user_id: Uuid, white: Uuid, black: Option<Uuid>) -> Role;
+pub fn expected_player(turn: Color, white: Uuid, black: Option<Uuid>) -> Option<Uuid>;
+```
+
+引数を渡すだけで結果が決まるため、対局を実際に進めなくても、また DB を用意しなくても検証できます。詰み・ステイルメイト・駒不足の各判定を局面から直接テストしており、ハンドラ側は入出力と DB 更新に専念する形になっています。
 
 ### エラーレスポンスの正規化
 
@@ -351,7 +386,7 @@ cargo test
 
 `tower::ServiceExt::oneshot` でルータへ直接リクエストを投げる方式を採り、HTTP サーバを起動せずにルーティングからハンドラ・リポジトリ・DB までを通しで検証しています。ポートの取り合いや起動待ちがない分、実行が速く安定します。
 
-現在 **25 件**のテストが以下をカバーしています。
+現在 **47 件**のテスト（ユニット 17 / 統合 30）が以下をカバーしています。
 
 | ファイル | 件数 | 内容 |
 |---|---|---|
@@ -359,6 +394,9 @@ cargo test
 | `game_test.rs` | 9 | 対局参加、指し手の記録、権限・手番・合法性のチェック |
 | `resign_test.rs` | 5 | 投了の結果反映、再投了、投了後の指し手拒否 |
 | `checkmate_test.rs` | 5 | Fool's mate / Scholar's mate による終局判定 |
+| `openapi_test.rs` | 5 | 仕様の配信、パス数の一致、セキュリティスキームの宣言 |
+
+これに加え、`domain` 層（手番判定・終局判定・勝者決定）のユニットテストが 17 件あります。I/O を持たない純粋関数なので DB なしで実行でき、一瞬で終わります。
 
 **結果が確定する経路では、API のステータスコードだけでなく `games` テーブルの中身まで assert しています。** 過去に「API は 200 を返すのに DB が更新されていない」というサイレント障害（ENUM キャスト漏れ + エラーがログにしか出ない実装）を見逃した経験があるためです（`docs/task-07`）。同じ問題が再発すれば即座にテストが落ちます。
 
@@ -480,6 +518,7 @@ SPA のため、Static Site 側で `/*` → `/index.html` の Rewrite ルール�
 | 25 | GitHub Actions による CI と、CI 成功時のみのデプロイ |
 | 26 | 統合テスト基盤（lib.rs 切り出し・`#[sqlx::test]`・認証系6件） |
 | 27 | 対局 API の統合テスト（join / move / resign / 終局、計25件） |
+| 28 | OpenAPI 仕様の生成と Swagger UI の配信 |
 
 ---
 
@@ -487,18 +526,16 @@ SPA のため、Static Site 側で `/*` → `/index.html` の Rewrite ルール�
 
 | 優先 | 項目 | 内容 |
 |---|---|---|
-| 1 | `domain` 層の切り出し | 手番判定・終局判定・勝者決定を I/O なしの純粋関数にし、DB 不要でユニットテストできる形へ |
-| 2 | エラーレスポンスの RFC 9457 化 | 現在は `(StatusCode, String)`。`AppError` + Problem Details に統一する |
-| 3 | WebSocket の統合テスト | イベント配信は現状 Python の簡易クライアントで手動確認している |
-| 4 | OpenAPI | utoipa による仕様生成と Swagger UI の配信 |
-| 5 | 対局履歴の閲覧 | 棋譜は DB にあるが、過去対局を見返す UI が未実装 |
-| 6 | レーティング | Elo による対局結果の反映 |
+| 1 | エラーレスポンスの RFC 9457 化 | 現在は `(StatusCode, String)`。`AppError` + Problem Details に統一し、フロントの `client.ts` も対応させる |
+| 2 | WebSocket の統合テスト | イベント配信は現状 Python の簡易クライアントで手動確認している |
+| 3 | 対局履歴の閲覧 | 棋譜は DB にあるが、過去対局を見返す UI が未実装 |
+| 4 | レーティング | Elo による対局結果の反映 |
 
 ---
 
 ## 開発記録
 
-全27タスクの設計判断・つまずいた点・再現コマンドを [`chess/docs/`](chess/docs/) に記録しています。特に、型チェックをすり抜けたバグの傾向は横断的な教訓としてまとめました。
+全28タスクの設計判断・つまずいた点・再現コマンドを [`chess/docs/`](chess/docs/) に記録しています。特に、型チェックをすり抜けたバグの傾向は横断的な教訓としてまとめました。
 
 - **API 関数の引数順序の取り違え** — `token` と `id` の位置が逆になるバグが4関数すべてで発生。全引数が `string` 型のため `tsc` をすり抜け、ブラウザで実行して初めて発覚した
 - **ファイル内容の誤混入・保存漏れ** — 関数定義が消えて呼び出し側だけ残る、別ファイル用のコードが書き込まれる、JSX が誤ったスコープに置かれる

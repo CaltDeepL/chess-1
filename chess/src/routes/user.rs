@@ -4,7 +4,7 @@ use axum::{
 };
 use uuid::Uuid;
 
-use crate::errors::AppError;
+use crate::errors::{AppError, ProblemDetails};
 use crate::models::UserPublicResponse;
 use crate::state::AppState;
 
@@ -20,7 +20,8 @@ use crate::state::AppState;
     ),
     responses(
         (status = 200, description = "公開ユーザー情報", body = UserPublicResponse),
-        (status = 404, description = "ユーザーが見つからない"),
+        (status = 404, description = "ユーザーが見つからない",
+            body = ProblemDetails, content_type = "application/problem+json"),
     )
 )]
 pub async fn get_user(

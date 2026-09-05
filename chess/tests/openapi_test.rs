@@ -77,3 +77,37 @@ async fn docs_page_is_served(pool: PgPool) {
     let (status, _) = get_html(&state, "/docs").await;
     assert_eq!(status, StatusCode::OK);
 }
+
+/// エラーレスポンスは全て ProblemDetails スキーマを参照していなければならない。
+/// 手作業で各 #[utoipa::path] に body を足すため、書き漏れを検知する。
+#[test]
+fn error_responses_reference_problem_details() {
+    let doc = openapi_json(); // 既存テストのヘルパーに合わせる
+    let paths = doc["paths"].as_object().unwrap();
+
+    let mut missing = Vec::new();
+
+    for (path, item) in paths {
+        for (method, op) in item.as_object().unwrap() {
+            let Some(responses) = op["responses"].as_object() else {
+                continue;
+            };
+            for (status, response) in responses {
+                // 4xx/5xx だけを対象にする
+                if !status.starts_with('4') && !status.starts_with('5') {
+                    continue;
+                }
+                let schema_ref =
+                    response["content"]["application/problem+json"]["schema"]["$ref"].as_str();
+                if schema_ref != Some("#/components/schemas/ProblemDetails") {
+                    missing.push(format!("{method} {path} -> {status}"));
+                }
+            }
+        }
+    }
+
+    assert!(
+        missing.is_empty(),
+        "ProblemDetails を参照していないエラーレスポンス: {missing:#?}"
+    );
+}

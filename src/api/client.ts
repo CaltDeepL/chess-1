@@ -13,10 +13,12 @@ function wsUrl(path: string): string {
 interface ApiError {
   status: number;
   message: string;
+   /** RFC 9457 の type。問題の種類で分岐したいときに使う(例: "/problems/conflict") */
+  type?: string;
 }
 
-// レスポンスがJSONエラーボディを返さなかった場合(バックエンド以外の
-// プロキシ/ゲートウェイが割り込んだ場合など)のフォールバック文言。
+// バックエンドは RFC 9457 (application/problem+json) の detail を返すが、
+// プロキシ/ゲートウェイが割り込んでJSONを返さない場合に備えたフォールバック文言。
 const STATUS_FALLBACK_MESSAGES: Record<number, string> = {
   400: "リクエストの内容が正しくありません",
   401: "認証が必要です",
@@ -63,15 +65,21 @@ async function request<T>(
     throw error;
   }
 
-  if (!res.ok) {
+    if (!res.ok) {
     let message = STATUS_FALLBACK_MESSAGES[res.status] ?? res.statusText;
+    let type: string | undefined;
+
     try {
       const body = await res.json();
-      message = body.message ?? message;
+      // RFC 9457 (application/problem+json) の detail を優先。
+      // message は旧形式との互換のために残している。
+      message = body.detail ?? body.message ?? message;
+      type = typeof body.type === "string" ? body.type : undefined;
     } catch {
-      // JSONでないエラーレスポンスはそのまま
+      // JSONでないエラーレスポンス(プロキシ由来の502等)はフォールバックのまま
     }
-    const error: ApiError = { status: res.status, message };
+
+    const error: ApiError = { status: res.status, message, type };
 
     if (res.status === 401 && token) {
       window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT));

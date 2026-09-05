@@ -6,7 +6,7 @@ use axum::{extract::State, http::HeaderMap, Json};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use uuid::Uuid;
 
-use crate::errors::AppError;
+use crate::errors::{AppError, ProblemDetails};
 use crate::models::{AuthResponse, Claims, LoginRequest, RegisterRequest, UserRow};
 use crate::state::AppState;
 
@@ -20,8 +20,10 @@ use crate::state::AppState;
     request_body = RegisterRequest,
     responses(
         (status = 200, description = "登録成功。ユーザーIDとJWTトークンを返す", body = AuthResponse),
-        (status = 400, description = "ユーザー名が空、またはパスワードが8文字未満"),
-        (status = 409, description = "そのユーザー名は既に使われている"),
+        (status = 400, description = "ユーザー名が空、またはパスワードが8文字未満",
+            body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 409, description = "そのユーザー名は既に使われている",
+            body = ProblemDetails, content_type = "application/problem+json"),
     )
 )]
 pub async fn register(
@@ -71,7 +73,8 @@ pub async fn register(
     request_body = LoginRequest,
     responses(
         (status = 200, description = "ログイン成功", body = AuthResponse),
-        (status = 401, description = "ユーザー名またはパスワードが違う"),
+        (status = 401, description = "ユーザー名またはパスワードが違う",
+            body = ProblemDetails, content_type = "application/problem+json"),
     )
 )]
 pub async fn login(

@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::auth::extract_user_id;
 use crate::domain::outcome::{determine_outcome, winner_after_resign};
 use crate::domain::player::{expected_player, role_of};
-use crate::errors::AppError;
+use crate::errors::{AppError, ProblemDetails};
 use crate::models::{
     GameCreatedResponse, GameDetailResponse, GameDetailRow, GameRow, GameStateResponse,
     GameSummary, ListGamesQuery, MoveRequest, MoveRow,
@@ -107,7 +107,8 @@ pub async fn create_game(
     ),
     responses(
         (status = 200, description = "対局の詳細", body = GameDetailResponse),
-        (status = 404, description = "対局が見つからない"),
+        (status = 404, description = "対局が見つからない",
+            body = ProblemDetails, content_type = "application/problem+json"),
     )
 )]
 pub async fn get_game(
@@ -151,9 +152,12 @@ pub async fn get_game(
     ),
     responses(
         (status = 200, description = "対局に参加した", body = serde_json::Value),
-        (status = 400, description = "自分が作成した対局には参加できない"),
-        (status = 404, description = "対局が見つからない"),
-        (status = 409, description = "既に対戦相手がいる"),
+        (status = 400, description = "自分が作成した対局には参加できない",
+            body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 404, description = "対局が見つからない",
+            body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 409, description = "既に対戦相手がいる",
+            body = ProblemDetails, content_type = "application/problem+json"),
     ),
     security(("bearer_auth" = []))
 )]
@@ -224,9 +228,12 @@ pub async fn join_game(
     ),
     responses(
         (status = 200, description = "投了して対局を終了した", body = serde_json::Value),
-        (status = 403, description = "この対局の参加者ではない"),
-        (status = 404, description = "対局が見つからない"),
-        (status = 409, description = "既に対局が終了している"),
+        (status = 403, description = "この対局の参加者ではない",
+            body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 404, description = "対局が見つからない",
+            body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 409, description = "既に対局が終了している",
+            body = ProblemDetails, content_type = "application/problem+json"),
     ),
     security(("bearer_auth" = []))
 )]
@@ -303,10 +310,14 @@ pub async fn resign_game(
     request_body = MoveRequest,
     responses(
         (status = 200, description = "指し手を適用した結果の盤面", body = GameStateResponse),
-        (status = 400, description = "指し手の形式が不正、または合法手ではない"),
-        (status = 403, description = "参加者ではない、または手番違い"),
-        (status = 404, description = "対局が見つからない"),
-        (status = 409, description = "対戦相手がまだ参加していない"),
+        (status = 400, description = "指し手の形式が不正、または合法手ではない",
+            body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 403, description = "参加者ではない、または手番違い",
+            body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 404, description = "対局が見つからない",
+            body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 409, description = "対戦相手がまだ参加していない",
+            body = ProblemDetails, content_type = "application/problem+json"),
     ),
     security(("bearer_auth" = []))
 )]

@@ -19,8 +19,11 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use openapi::ApiDoc;
 use state::AppState;
 
-pub fn build_router(state: AppState) -> Router {
-    let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
+/// #[utoipa::path]が付いたハンドラからルーターとOpenAPI仕様を組み立てる。
+/// build_router()とopenapi_spec()の両方から呼ばれる唯一の定義元にすることで、
+/// 実際に配信されるAPIとOpenAPIドキュメントが食い違わないようにする。
+fn openapi_router() -> (Router<AppState>, utoipa::openapi::OpenApi) {
+    OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(routes!(routes::health::health_check))
         .routes(routes!(auth::register))
         .routes(routes!(auth::login))
@@ -32,7 +35,17 @@ pub fn build_router(state: AppState) -> Router {
         .routes(routes!(routes::game::join_game))
         .routes(routes!(routes::game::make_move))
         .routes(routes!(routes::game::resign_game))
-        .split_for_parts();
+        .split_for_parts()
+}
+
+/// 実際に配信されるOpenAPI仕様をHTTP/DBを経由せず直接取得する。
+/// ProblemDetailsの参照漏れなど、静的な仕様チェックのテストで使う。
+pub fn openapi_spec() -> utoipa::openapi::OpenApi {
+    openapi_router().1
+}
+
+pub fn build_router(state: AppState) -> Router {
+    let (router, api) = openapi_router();
 
     router
         // WebSocketは仕様の対象外(OpenAPIはHTTPのみ)なので通常のrouteで追加

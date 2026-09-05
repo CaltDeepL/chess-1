@@ -13,6 +13,9 @@ use utoipa::{
                        右上の Authorize に入力してください。",
     ),
     modifiers(&SecurityAddon),
+    components(schemas(
+        crate::errors::ProblemDetails,
+    )),
     tags(
         (name = "auth", description = "ユーザー登録・ログイン"),
         (name = "games", description = "対局の作成・参加・進行"),

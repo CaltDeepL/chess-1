@@ -2,13 +2,19 @@
 
 use axum::{
     body::Body,
-    http::{Request, StatusCode},
+    http::{HeaderMap, Request, StatusCode},
 };
 use chess_server::state::AppState;
 use http_body_util::BodyExt;
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use tower::ServiceExt;
+
+/// DBやHTTPを経由せず、生成されたOpenAPI仕様を直接取得する
+/// (ProblemDetailsの参照漏れチェックなど、純粋に静的なテストで使う)
+pub fn openapi_json() -> Value {
+    serde_json::to_value(chess_server::openapi_spec()).unwrap()
+}
 
 /// テスト全体で共有する AppState を作る
 pub fn test_state(pool: PgPool) -> AppState {
@@ -40,6 +46,34 @@ pub async fn post_json(state: &AppState, path: &str, body: Value) -> (StatusCode
         .body(Body::from(body.to_string()))
         .unwrap();
     send(state, req).await
+}
+
+/// post_json のヘッダ付き版。Content-Type を検証したいときに使う。
+pub async fn post_json_raw(
+    state: &AppState,
+    path: &str,
+    body: serde_json::Value,
+) -> (StatusCode, HeaderMap, serde_json::Value) {
+    let response = chess_server::build_router(state.clone())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(path)
+                .header("Content-Type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let status = response.status();
+    let headers = response.headers().clone();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+
+    (status, headers, json)
 }
 
 pub async fn post_auth(state: &AppState, path: &str, token: &str) -> (StatusCode, Value) {

@@ -519,6 +519,7 @@ SPA のため、Static Site 側で `/*` → `/index.html` の Rewrite ルール�
 | 26 | 統合テスト基盤（lib.rs 切り出し・`#[sqlx::test]`・認証系6件） |
 | 27 | 対局 API の統合テスト（join / move / resign / 終局、計25件） |
 | 28 | OpenAPI 仕様の生成と Swagger UI の配信 |
+| 29 | エラーレスポンスの RFC 9457 化（Problem Details・OpenAPI 反映・計51件） |
 
 ---
 
@@ -526,10 +527,9 @@ SPA のため、Static Site 側で `/*` → `/index.html` の Rewrite ルール�
 
 | 優先 | 項目 | 内容 |
 |---|---|---|
-| 1 | エラーレスポンスの RFC 9457 化 | 現在は `(StatusCode, String)`。`AppError` + Problem Details に統一し、フロントの `client.ts` も対応させる |
-| 2 | WebSocket の統合テスト | イベント配信は現状 Python の簡易クライアントで手動確認している |
-| 3 | 対局履歴の閲覧 | 棋譜は DB にあるが、過去対局を見返す UI が未実装 |
-| 4 | レーティング | Elo による対局結果の反映 |
+| 1 | WebSocket の統合テスト | イベント配信は現状 Python の簡易クライアントで手動確認している |
+| 2 | 対局履歴の閲覧 | 棋譜は DB にあるが、過去対局を見返す UI が未実装 |
+| 3 | レーティング | Elo による対局結果の反映 |
 
 ---
 

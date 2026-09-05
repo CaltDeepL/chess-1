@@ -1,15 +1,11 @@
 use axum::{
-    http::StatusCode,
+    http::{header, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
 use serde::Serialize;
+use utoipa::ToSchema;
 
-/// 各ハンドラで共通のエラー型。バリアントごとにHTTPステータスが決まり、
-/// IntoResponseでJSONボディ({"message": "..."})に変換される。
-/// これによりフロントエンド(api/client.ts)がres.json()でmessageを
-/// 正しく取り出せるようになる(以前はtext/plainで返っておりJSONパースに
-/// 失敗し、汎用フォールバック文言にすり替わってしまっていた)。
 #[derive(Debug)]
 pub enum AppError {
     BadRequest(String),
@@ -20,30 +16,83 @@ pub enum AppError {
     Internal(String),
 }
 
-#[derive(Serialize)]
-struct ErrorBody {
-    message: String,
+/// RFC 9457 Problem Details for HTTP APIs
+#[derive(Serialize, ToSchema)]
+pub struct ProblemDetails {
+    /// 問題の種類を識別するURI参照
+    #[serde(rename = "type")]
+    #[schema(example = "/problems/forbidden")]
+    pub type_uri: String,
+    /// 種類の短い説明(この種類に対して常に同じ)
+    #[schema(example = "Forbidden")]
+    pub title: String,
+    /// HTTPステータスコード
+    #[schema(example = 403)]
+    pub status: u16,
+    /// この発生事例の説明(利用者に見せる文言)
+    #[schema(example = "あなたの手番ではありません")]
+    pub detail: String,
+}
+
+impl AppError {
+    /// 変種ごとの (ステータス, typeのコード, title)
+    fn meta(&self) -> (StatusCode, &'static str, &'static str) {
+        match self {
+            Self::BadRequest(_) => (StatusCode::BAD_REQUEST, "bad-request", "Bad request"),
+            Self::Unauthorized(_) => (StatusCode::UNAUTHORIZED, "unauthorized", "Unauthorized"),
+            Self::Forbidden(_) => (StatusCode::FORBIDDEN, "forbidden", "Forbidden"),
+            Self::NotFound(_) => (StatusCode::NOT_FOUND, "not-found", "Not found"),
+            Self::Conflict(_) => (StatusCode::CONFLICT, "conflict", "Conflict"),
+            Self::Internal(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal",
+                "Internal server error",
+            ),
+        }
+    }
+
+    /// クライアントに見せる detail
+    ///
+    /// Internal だけは内部情報(DBのエラー文など)を含みうるため、
+    /// 中身を出さず固定文言に差し替える。原因はログにのみ残す。
+    fn public_detail(&self) -> String {
+        match self {
+            Self::Internal(_) => "サーバー内部でエラーが発生しました".to_string(),
+            Self::BadRequest(m)
+            | Self::Unauthorized(m)
+            | Self::Forbidden(m)
+            | Self::NotFound(m)
+            | Self::Conflict(m) => m.clone(),
+        }
+    }
 }
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let (status, message) = match self {
-            AppError::BadRequest(m) => (StatusCode::BAD_REQUEST, m),
-            AppError::Unauthorized(m) => (StatusCode::UNAUTHORIZED, m),
-            AppError::Forbidden(m) => (StatusCode::FORBIDDEN, m),
-            AppError::NotFound(m) => (StatusCode::NOT_FOUND, m),
-            AppError::Conflict(m) => (StatusCode::CONFLICT, m),
-            AppError::Internal(m) => (StatusCode::INTERNAL_SERVER_ERROR, m),
+        if let Self::Internal(m) = &self {
+            tracing::error!(detail = %m, "internal server error");
+        }
+
+        let (status, code, title) = self.meta();
+        let body = ProblemDetails {
+            type_uri: format!("/problems/{code}"),
+            title: title.to_string(),
+            status: status.as_u16(),
+            detail: self.public_detail(),
         };
-        (status, Json(ErrorBody { message })).into_response()
+
+        // Json が付ける application/json を、後段のヘッダで上書きする
+        (
+            status,
+            [(header::CONTENT_TYPE, "application/problem+json")],
+            Json(body),
+        )
+            .into_response()
     }
 }
 
-/// sqlx::Errorから`?`一発でAppError::Internalへ変換できるようにする。
-/// これにより各クエリ末尾の `.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DBエラー: {}", e)))?`
-/// という重複が丸ごと不要になる。
 impl From<sqlx::Error> for AppError {
     fn from(e: sqlx::Error) -> Self {
-        AppError::Internal(format!("DBエラー: {}", e))
+        Self::Internal(format!("DBエラー: {e}"))
     }
 }

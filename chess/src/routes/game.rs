@@ -123,11 +123,15 @@ pub async fn join_game(
     .ok_or_else(|| AppError::NotFound("対局が見つかりません".to_string()))?;
 
     if game.white_user_id == user_id {
-        return Err(AppError::BadRequest("自分が作成した対局には参加できません".to_string()));
+        return Err(AppError::BadRequest(
+            "自分が作成した対局には参加できません".to_string(),
+        ));
     }
 
     if game.black_user_id.is_some() {
-        return Err(AppError::Conflict("この対局には既に対戦相手がいます".to_string()));
+        return Err(AppError::Conflict(
+            "この対局には既に対戦相手がいます".to_string(),
+        ));
     }
 
     let result = sqlx::query(
@@ -140,7 +144,9 @@ pub async fn join_game(
     .await?;
 
     if result.rows_affected() == 0 {
-        return Err(AppError::Conflict("この対局には既に対戦相手がいます".to_string()));
+        return Err(AppError::Conflict(
+            "この対局には既に対戦相手がいます".to_string(),
+        ));
     }
 
     tracing::info!(%id, %user_id, "player joined game");
@@ -151,7 +157,9 @@ pub async fn join_game(
         .await
         .send(GameEvent::OpponentJoined { user_id });
 
-    Ok(Json(serde_json::json!({ "game_id": id, "status": "in_progress" })))
+    Ok(Json(
+        serde_json::json!({ "game_id": id, "status": "in_progress" }),
+    ))
 }
 
 /// POST /games/:id/resign
@@ -175,12 +183,16 @@ pub async fn resign_game(
     let is_white = user_id == game.white_user_id;
     let is_black = Some(user_id) == game.black_user_id;
     if !is_white && !is_black {
-        return Err(AppError::Forbidden("この対局の参加者ではありません".to_string()));
+        return Err(AppError::Forbidden(
+            "この対局の参加者ではありません".to_string(),
+        ));
     }
 
     // 既に終了している対局への投了は無効
     if game.status == "finished" {
-        return Err(AppError::Conflict("この対局は既に終了しています".to_string()));
+        return Err(AppError::Conflict(
+            "この対局は既に終了しています".to_string(),
+        ));
     }
 
     // 投了した側の逆が勝者
@@ -196,7 +208,9 @@ pub async fn resign_game(
     .await?;
 
     if update_result.rows_affected() == 0 {
-        return Err(AppError::Conflict("この対局は既に終了しています".to_string()));
+        return Err(AppError::Conflict(
+            "この対局は既に終了しています".to_string(),
+        ));
     }
 
     // メモリ上の対局データも削除(進行中対局の管理対象から外す)
@@ -210,7 +224,9 @@ pub async fn resign_game(
         end_reason: "resignation".to_string(),
     });
 
-    Ok(Json(serde_json::json!({ "game_id": id, "status": "finished", "result": result })))
+    Ok(Json(
+        serde_json::json!({ "game_id": id, "status": "finished", "result": result }),
+    ))
 }
 
 /// POST /games/:id/move
@@ -231,7 +247,9 @@ pub async fn make_move(
     .ok_or_else(|| AppError::NotFound("対局が見つかりません".to_string()))?;
 
     if user_id != game.white_user_id && Some(user_id) != game.black_user_id {
-        return Err(AppError::Forbidden("この対局の参加者ではありません".to_string()));
+        return Err(AppError::Forbidden(
+            "この対局の参加者ではありません".to_string(),
+        ));
     }
 
     let uci_move: UciMove = payload
@@ -252,7 +270,9 @@ pub async fn make_move(
             .ok_or_else(|| AppError::Conflict("対戦相手がまだ参加していません".to_string()))?,
     };
     if user_id != expected_user {
-        return Err(AppError::Forbidden("あなたの手番ではありません".to_string()));
+        return Err(AppError::Forbidden(
+            "あなたの手番ではありません".to_string(),
+        ));
     }
 
     let mv = uci_move
@@ -323,7 +343,10 @@ pub async fn make_move(
                 is_game_over,
             }))
         }
-        Err(e) => Err(AppError::BadRequest(format!("指し手を適用できません: {}", e))),
+        Err(e) => Err(AppError::BadRequest(format!(
+            "指し手を適用できません: {}",
+            e
+        ))),
     }
 }
 

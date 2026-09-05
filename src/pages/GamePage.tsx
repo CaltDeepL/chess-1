@@ -1,18 +1,18 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
-import { useToast } from "../context/ToastContext";
+import { useAuth } from "../context/useAuth";
+import { useToast } from "../context/useToast";
 import { useGameSocket } from "../hooks/useGameSocket";
 import { getGame, getMoves, makeMove, resignGame } from "../api/games";
 import { getUser } from "../api/users";
 import ChessBoard from "../components/ChessBoard";
-import { UNICODE_SYMBOLS } from "../components/UnicodePieces";
+import { UNICODE_SYMBOLS } from "../lib/pieceSymbols";
 import ConnectionLED from "../components/ConnectionLED";
 import ConnectionBanner from "../components/ConnectionBanner";
 import GameMenu from "../components/GameMenu";
 import GameOverOverlay from "../components/GameOverOverlay";
 import MoveHistory from "../components/MoveHistory";
-import type { GameDetailResponse, GameResult, MoveRow } from "../types";
+import type { GameDetailResponse, GameEvent, GameResult, MoveRow } from "../types";
 import type { ApiError } from "../api/client";
 
 type PromotionPiece = "q" | "r" | "b" | "n";
@@ -44,7 +44,28 @@ export default function GamePage() {
   } | null>(null);
   const [moves, setMoves] = useState<MoveRow[]>([]);
 
-  const { status, lastEvent } = useGameSocket(id, token);
+  // WebSocketイベントを受信するたびに盤面を更新する(useGameSocket内のonmessageから直接呼ばれる)
+  const handleGameEvent = useCallback(
+    (event: GameEvent) => {
+      if (event.type === "move") {
+        setFen(event.fen);
+        setTurn(event.fen.split(" ")[1] === "b" ? "black" : "white");
+        setMoves((prev) => [
+          ...prev,
+          { move_number: prev.length + 1, uci: event.uci, fen_after: event.fen },
+        ]);
+      } else if (event.type === "game_over") {
+        setResult(event.result);
+      } else if (event.type === "opponent_joined") {
+        setOpponentId(event.user_id);
+        setGame((prev) => (prev ? { ...prev, black_user_id: event.user_id } : prev));
+        showToast("対戦相手が参加しました");
+      }
+    },
+    [showToast]
+  );
+
+  const status = useGameSocket(id, token, handleGameEvent);
 
   // 初回ロード: 棋譜(指し手履歴)を取得
   useEffect(() => {
@@ -57,9 +78,9 @@ export default function GamePage() {
   // 初回ロード: REST APIで現在の対局状態を取得
   useEffect(() => {
     if (!id || !token) return;
-    setLoadError(null);
     getGame(id)
       .then((res) => {
+        setLoadError(null);
         setGame(res);
         setFen(res.fen);
         setTurn(res.fen.split(" ")[1] === "b" ? "black" : "white");
@@ -81,26 +102,6 @@ export default function GamePage() {
       .then((res) => setOpponentName(res.username))
       .catch(() => setOpponentName(null));
   }, [opponentId]);
-
-  // WebSocketイベントで盤面を更新
-  useEffect(() => {
-    if (!lastEvent) return;
-
-    if (lastEvent.type === "move") {
-      setFen(lastEvent.fen);
-      setTurn(lastEvent.fen.split(" ")[1] === "b" ? "black" : "white");
-      setMoves((prev) => [
-        ...prev,
-        { move_number: prev.length + 1, uci: lastEvent.uci, fen_after: lastEvent.fen },
-      ]);
-    } else if (lastEvent.type === "game_over") {
-      setResult(lastEvent.result);
-    } else if (lastEvent.type === "opponent_joined") {
-      setOpponentId(lastEvent.user_id);
-      setGame((prev) => (prev ? { ...prev, black_user_id: lastEvent.user_id } : prev));
-      showToast("対戦相手が参加しました");
-    }
-  }, [lastEvent, showToast]);
 
   const myColor: "white" | "black" | null = !game || !user
     ? null

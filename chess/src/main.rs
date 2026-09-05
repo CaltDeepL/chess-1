@@ -18,7 +18,9 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use auth::{login, register};
 use axum::http::{header, Method};
-use routes::game::{create_game, get_game, get_moves, join_game, list_games, make_move, resign_game};
+use routes::game::{
+    create_game, get_game, get_moves, join_game, list_games, make_move, resign_game,
+};
 use routes::health::health_check;
 use routes::user::get_user;
 use routes::ws::ws_handler;
@@ -30,7 +32,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "chess_server=debug,tower_http=debug".into()),
+            std::env::var("RUST_LOG")
+                .unwrap_or_else(|_| "chess_server=debug,tower_http=debug".into()),
         ))
         .with(tracing_subscriber::fmt::layer())
         .init();
@@ -38,7 +41,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database_url = std::env::var("DATABASE_URL")
         .expect("環境変数 DATABASE_URL が設定されていません(.envを確認してください)");
     let jwt_secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| {
-        tracing::warn!("JWT_SECRET未設定のため開発用の固定値を使用します(本番では必ず設定してください)");
+        tracing::warn!(
+            "JWT_SECRET未設定のため開発用の固定値を使用します(本番では必ず設定してください)"
+        );
         "dev-secret-change-me".to_string()
     });
 

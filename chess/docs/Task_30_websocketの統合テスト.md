@@ -137,11 +137,3 @@ cargo test                              # 全58件（unittests 17 + 統合 41）
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 ```
-
-## コミットメッセージ
-
-`docs/commits/task-30-test-websocket-integration.txt` を参照。
-
-```bash
-git commit -F docs/commits/task-30-test-websocket-integration.txt
-```

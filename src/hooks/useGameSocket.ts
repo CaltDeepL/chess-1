@@ -35,13 +35,19 @@ export function useGameSocket(
         // 最初のメッセージでトークンを送って認証
         socket!.send(JSON.stringify({ token }));
         reconnectAttempt = 0;
-        setStatus("open");
+        // ここではまだ認証・参加者チェック・購読が済んでいない。
+        // "open"への遷移は、サーバーから届く{"type":"connected"}を
+        // 受け取ってから行う(購読が実際に始まったことの合図)。
       };
 
       socket.onmessage = (event) => {
         try {
-          const parsed = JSON.parse(event.data) as GameEvent;
-          onEventRef.current(parsed);
+          const parsed = JSON.parse(event.data);
+          if (parsed.type === "connected") {
+            setStatus("open");
+            return;
+          }
+          onEventRef.current(parsed as GameEvent);
         } catch {
           console.error("WebSocketメッセージのパースに失敗:", event.data);
         }

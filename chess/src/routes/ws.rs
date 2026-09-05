@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
@@ -12,6 +14,10 @@ use uuid::Uuid;
 use crate::auth::verify_token;
 use crate::models::GameRow;
 use crate::state::AppState;
+
+/// 認証メッセージを待つ最大時間。
+/// 接続だけして何も送らないクライアントがタスクを保持し続けるのを防ぐ。
+const AUTH_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// クライアントが接続直後に送る認証メッセージ
 #[derive(Deserialize)]
@@ -30,13 +36,23 @@ pub async fn ws_handler(
 }
 
 async fn handle_socket(mut socket: WebSocket, state: AppState, game_id: Uuid) {
-    // 1. 最初のメッセージとしてトークンを受け取る(タイムアウトは省略、必要なら追加)
-    let auth_msg = match socket.recv().await {
-        Some(Ok(Message::Text(text))) => text,
-        _ => {
+    // 1. 最初のメッセージとしてトークンを受け取る。
+    // タイムアウトが無いと、接続だけして何も送らないクライアントが
+    // recv_task/send_task を起動する前段でタスクを永久に保持し続けてしまう。
+    let auth_msg = match tokio::time::timeout(AUTH_TIMEOUT, socket.recv()).await {
+        Ok(Some(Ok(Message::Text(text)))) => text,
+        Ok(_) => {
             let _ = socket
                 .send(Message::Text(
                     r#"{"error":"認証メッセージが必要です"}"#.into(),
+                ))
+                .await;
+            return;
+        }
+        Err(_) => {
+            let _ = socket
+                .send(Message::Text(
+                    r#"{"error":"認証メッセージがタイムアウトしました"}"#.into(),
                 ))
                 .await;
             return;
@@ -95,6 +111,18 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, game_id: Uuid) {
     let mut receiver = state.game_channel(game_id).await.subscribe();
 
     tracing::info!(%game_id, %user_id, "websocket connected");
+
+    // 購読が実際に始まったことをクライアントに知らせる。
+    // クライアント側はこれを「接続完了」の合図として使える
+    // (upgrade成功時点ではまだ認証・参加者チェック・購読が済んでいないため、
+    // それより後のこのタイミングの方が実態に即している)。
+    if socket
+        .send(Message::Text(r#"{"type":"connected"}"#.into()))
+        .await
+        .is_err()
+    {
+        return;
+    }
 
     let (mut ws_sender, mut ws_receiver) = socket.split();
 

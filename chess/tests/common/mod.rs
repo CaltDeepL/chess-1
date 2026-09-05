@@ -229,15 +229,18 @@ pub async fn send_auth(ws: &mut WsStream, token: &str) {
 
 /// 接続して認証まで済ませ、イベントを受け取れる状態のストリームを返す。
 ///
-/// 【注意】サーバーは認証・参加者チェック・DB照会を終えてから
-/// `subscribe()` するため、送信完了の直後はまだ購読が始まっていない。
-/// broadcast は購読前のイベントを配送しないので、ここで待たずに
-/// REST 操作を行うとイベントを取りこぼして不安定なテストになる。
-/// サーバー側に「購読完了」を知らせる仕組みが無いため、待機で吸収している。
+/// サーバーは認証・参加者チェック・DB照会・`subscribe()` を終えた直後に
+/// `{"type":"connected"}` を送ってくるので、それを読み切ってから返す。
+/// これにより「購読が始まる前にRESTを叩いてイベントを取りこぼす」という
+/// レースコンディションが、固定時間のsleepに頼らずに解消される。
 pub async fn connect_ws(addr: SocketAddr, game_id: &str, token: &str) -> WsStream {
     let mut ws = open_ws(addr, game_id).await;
     send_auth(&mut ws, token).await;
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    let event = next_event(&mut ws).await;
+    assert_eq!(
+        event["type"], "connected",
+        "購読開始の通知が届くはず: {event}"
+    );
     ws
 }
 

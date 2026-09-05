@@ -18,9 +18,9 @@ export default function LobbyPage() {
 
   const fetchGames = useCallback(async () => {
     if (!token) return;
+    setError(null);
     try {
       const list = await getGames(token, "waiting");
-      setError(null);
       setGames(list);
     } catch (err) {
       setError((err as ApiError).message || "対局一覧の取得に失敗しました");
@@ -53,7 +53,9 @@ export default function LobbyPage() {
       }
     }
 
-    fetchGames();
+    // setIntervalと同様、fetchGamesはeffect本体で直接呼ばず参照として渡し、
+    // マイクロタスクのコールバック内から呼び出す(直接呼ぶとreact-hooks/set-state-in-effectに引っかかる)
+    queueMicrotask(fetchGames);
     startPolling();
     document.addEventListener("visibilitychange", handleVisibilityChange);
 

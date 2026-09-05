@@ -18,9 +18,9 @@ export default function LobbyPage() {
 
   const fetchGames = useCallback(async () => {
     if (!token) return;
-    setError(null);
     try {
       const list = await getGames(token, "waiting");
+      setError(null);
       setGames(list);
     } catch (err) {
       setError((err as ApiError).message || "対局一覧の取得に失敗しました");
@@ -53,13 +53,11 @@ export default function LobbyPage() {
       }
     }
 
-    // 初回ロードはコールバック内で行い、effect本体で直接setStateしないようにする
-    const initialFetch = setTimeout(fetchGames, 0);
+    fetchGames();
     startPolling();
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
-      clearTimeout(initialFetch);
       stopPolling();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };

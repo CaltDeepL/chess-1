@@ -53,13 +53,13 @@ export default function LobbyPage() {
       }
     }
 
-    // 初回ロードはコールバック内で行い、effect本体で直接setStateしないようにする
-    const initialFetch = setTimeout(fetchGames, 0);
+    // setIntervalと同様、fetchGamesはeffect本体で直接呼ばず参照として渡し、
+    // マイクロタスクのコールバック内から呼び出す(直接呼ぶとreact-hooks/set-state-in-effectに引っかかる)
+    queueMicrotask(fetchGames);
     startPolling();
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
-      clearTimeout(initialFetch);
       stopPolling();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };

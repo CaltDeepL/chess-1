@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: chess
       POSTGRES_DB: chess_db
     ports:
-      - "5433:5432"
+      - "5434:5432"   # 5433 → 5434 に変更
     networks:
       - chess-net
     volumes:

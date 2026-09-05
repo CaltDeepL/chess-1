@@ -13,14 +13,19 @@ use utoipa::{
                        右上の Authorize に入力してください。",
     ),
     modifiers(&SecurityAddon),
+    paths(
+        crate::routes::history::list_my_games,
+    ),
     components(schemas(
         crate::errors::ProblemDetails,
+        crate::routes::history::GameHistoryItem,
     )),
     tags(
         (name = "auth", description = "ユーザー登録・ログイン"),
         (name = "games", description = "対局の作成・参加・進行"),
         (name = "users", description = "ユーザー情報"),
         (name = "system", description = "疎通確認"),
+        (name = "history", description = "対局履歴")
     )
 )]
 pub struct ApiDoc;

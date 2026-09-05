@@ -9,7 +9,7 @@ use sqlx::PgPool;
 /// エンドポイントを追加・削除したら、この数を更新すると同時に
 /// `#[utoipa::path]` の付与漏れがないか確認すること。
 /// (WebSocket の /ws/games/{id} は OpenAPI の対象外)
-const EXPECTED_PATH_COUNT: usize = 10;
+const EXPECTED_PATH_COUNT: usize = 11;
 
 #[sqlx::test(migrations = "./migrations")]
 async fn openapi_json_is_served(pool: PgPool) {

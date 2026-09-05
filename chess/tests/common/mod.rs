@@ -109,14 +109,31 @@ pub async fn post_auth_json(
     send(state, req).await
 }
 
-pub async fn get_auth(state: &AppState, path: &str, token: &str) -> (StatusCode, Value) {
-    let req = Request::builder()
-        .method("GET")
-        .uri(path)
-        .header("authorization", format!("Bearer {token}"))
-        .body(Body::empty())
+/// 認証付き GET。クエリ文字列を含むパスをそのまま渡せる。
+pub async fn get_auth(
+    state: &AppState,
+    path: &str,
+    token: &str,
+) -> (StatusCode, serde_json::Value) {
+    let response = chess_server::build_router(state.clone())
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(path)
+                .header("Authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
         .unwrap();
-    send(state, req).await
+
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+
+    (status, json)
 }
 
 /// 認証なしのGET(JSONレスポンス)

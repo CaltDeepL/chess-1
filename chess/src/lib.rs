@@ -28,6 +28,10 @@ fn openapi_router() -> (Router<AppState>, utoipa::openapi::OpenApi) {
         .routes(routes!(auth::register))
         .routes(routes!(auth::login))
         .routes(routes!(routes::user::get_user))
+        .route(
+            "/users/me/games",
+            axum::routing::get(crate::routes::history::list_my_games),
+        )
         // 同じパスの GET/POST は1つの routes!() にまとめる
         .routes(routes!(routes::game::list_games, routes::game::create_game))
         .routes(routes!(routes::game::get_game))

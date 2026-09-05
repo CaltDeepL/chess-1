@@ -39,7 +39,9 @@ pub async fn register(
 
     if let Err(e) = result {
         tracing::warn!(error = %e, "register failed");
-        return Err(AppError::Conflict("そのユーザー名は既に使われています".to_string()));
+        return Err(AppError::Conflict(
+            "そのユーザー名は既に使われています".to_string(),
+        ));
     }
 
     let token = issue_token(user_id, &state.jwt_secret)?;
@@ -54,14 +56,18 @@ pub async fn login(
     State(state): State<AppState>,
     Json(payload): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>, AppError> {
-    let user = sqlx::query_as::<_, UserRow>("SELECT id, password_hash FROM users WHERE username = $1")
-        .bind(&payload.username)
-        .fetch_optional(&state.db)
-        .await?
-        .ok_or_else(|| AppError::Unauthorized("ユーザー名またはパスワードが違います".to_string()))?;
+    let user =
+        sqlx::query_as::<_, UserRow>("SELECT id, password_hash FROM users WHERE username = $1")
+            .bind(&payload.username)
+            .fetch_optional(&state.db)
+            .await?
+            .ok_or_else(|| {
+                AppError::Unauthorized("ユーザー名またはパスワードが違います".to_string())
+            })?;
 
-    let parsed_hash = PasswordHash::new(&user.password_hash)
-        .map_err(|e| AppError::Internal(format!("保存済みハッシュの読み取りに失敗しました: {}", e)))?;
+    let parsed_hash = PasswordHash::new(&user.password_hash).map_err(|e| {
+        AppError::Internal(format!("保存済みハッシュの読み取りに失敗しました: {}", e))
+    })?;
 
     Argon2::default()
         .verify_password(payload.password.as_bytes(), &parsed_hash)
@@ -71,7 +77,10 @@ pub async fn login(
 
     tracing::info!(user_id = %user.id, "user logged in");
 
-    Ok(Json(AuthResponse { user_id: user.id, token }))
+    Ok(Json(AuthResponse {
+        user_id: user.id,
+        token,
+    }))
 }
 
 /// 指定ユーザーIDに対するJWTを発行するヘルパー。有効期限は24時間。
@@ -81,17 +90,28 @@ pub fn issue_token(user_id: Uuid, jwt_secret: &str) -> Result<String, AppError> 
         .expect("有効なタイムスタンプの計算に失敗しました")
         .timestamp() as usize;
 
-    let claims = Claims { sub: user_id, exp: expiration };
+    let claims = Claims {
+        sub: user_id,
+        exp: expiration,
+    };
 
-    encode(&Header::default(), &claims, &EncodingKey::from_secret(jwt_secret.as_bytes()))
-        .map_err(|e| AppError::Internal(format!("トークン発行に失敗しました: {}", e)))
+    encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(jwt_secret.as_bytes()),
+    )
+    .map_err(|e| AppError::Internal(format!("トークン発行に失敗しました: {}", e)))
 }
 
 /// JWTを検証してユーザーIDを取り出すヘルパー。
 pub fn verify_token(token: &str, jwt_secret: &str) -> Result<Uuid, AppError> {
-    decode::<Claims>(token, &DecodingKey::from_secret(jwt_secret.as_bytes()), &Validation::default())
-        .map(|data| data.claims.sub)
-        .map_err(|e| AppError::Unauthorized(format!("トークンが無効です: {}", e)))
+    decode::<Claims>(
+        token,
+        &DecodingKey::from_secret(jwt_secret.as_bytes()),
+        &Validation::default(),
+    )
+    .map(|data| data.claims.sub)
+    .map_err(|e| AppError::Unauthorized(format!("トークンが無効です: {}", e)))
 }
 
 /// Authorizationヘッダー(Bearer方式)からユーザーIDを取り出すヘルパー
@@ -103,7 +123,8 @@ pub fn extract_user_id(headers: &HeaderMap, jwt_secret: &str) -> Result<Uuid, Ap
 
     let token = auth_header.strip_prefix("Bearer ").ok_or_else(|| {
         AppError::Unauthorized(
-            "Authorizationヘッダーの形式が不正です(Bearer <token>の形式で送ってください)".to_string(),
+            "Authorizationヘッダーの形式が不正です(Bearer <token>の形式で送ってください)"
+                .to_string(),
         )
     })?;
 

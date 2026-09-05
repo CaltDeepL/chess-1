@@ -1,5 +1,7 @@
 # Chess App
 
+[![CI](https://github.com/CaltDeepL/test1/actions/workflows/ci.yml/badge.svg)](https://github.com/CaltDeepL/test1/actions/workflows/ci.yml)
+
 学習・練習用のオンライン対戦チェスアプリ。Rust(Axum)製バックエンドとReact(SPA)製フロントエンドで、WebSocketによるリアルタイム対局を実現しています。
 
 ## 特徴

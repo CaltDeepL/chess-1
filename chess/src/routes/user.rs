@@ -15,13 +15,12 @@ pub async fn get_user(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<UserPublicResponse>, AppError> {
-    let user = sqlx::query_as::<_, UserPublicResponse>(
-        "SELECT id, username FROM users WHERE id = $1",
-    )
-    .bind(id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or_else(|| AppError::NotFound("ユーザーが見つかりません".to_string()))?;
+    let user =
+        sqlx::query_as::<_, UserPublicResponse>("SELECT id, username FROM users WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&state.db)
+            .await?
+            .ok_or_else(|| AppError::NotFound("ユーザーが見つかりません".to_string()))?;
 
     Ok(Json(user))
 }

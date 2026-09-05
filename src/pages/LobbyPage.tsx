@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../context/useAuth";
 import { getGames, createGame, joinGame } from "../api/games";
 import GameList from "../components/GameList";
 import type { GameSummary } from "../types";
@@ -29,41 +29,42 @@ export default function LobbyPage() {
     }
   }, [token]);
 
- useEffect(() => {
-  fetchGames();
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval> | null = null;
 
-  let interval: ReturnType<typeof setInterval> | null = null;
-
-  function startPolling() {
-    if (interval) return;
-    interval = setInterval(fetchGames, 5000);
-  }
-
-  function stopPolling() {
-    if (interval) {
-      clearInterval(interval);
-      interval = null;
+    function startPolling() {
+      if (interval) return;
+      interval = setInterval(fetchGames, 5000);
     }
-  }
 
-  function handleVisibilityChange() {
-    if (document.hidden) {
+    function stopPolling() {
+      if (interval) {
+        clearInterval(interval);
+        interval = null;
+      }
+    }
+
+    function handleVisibilityChange() {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        fetchGames();
+        startPolling();
+      }
+    }
+
+    // 初回ロードはコールバック内で行い、effect本体で直接setStateしないようにする
+    const initialFetch = setTimeout(fetchGames, 0);
+    startPolling();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      clearTimeout(initialFetch);
       stopPolling();
-    } else {
-      fetchGames();
-      startPolling();
-    }
-  }
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [fetchGames]);
 
-  startPolling();
-  document.addEventListener("visibilitychange", handleVisibilityChange);
-
-  return () => {
-    stopPolling();
-    document.removeEventListener("visibilitychange", handleVisibilityChange);
-  };
-}, [fetchGames]);
- 
   async function handleCreate() {
     if (!token) return;
     setIsCreating(true);

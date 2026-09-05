@@ -1,23 +1,23 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { GameEvent } from "../types";
 import { wsUrl } from "../api/client";
 
 export type ConnectionStatus = "connecting" | "open" | "reconnecting" | "closed" | "error";
-
-interface UseGameSocketResult {
-  status: ConnectionStatus;
-  lastEvent: GameEvent | null;
-}
 
 const INITIAL_RECONNECT_DELAY_MS = 1000;
 const MAX_RECONNECT_DELAY_MS = 30000;
 
 export function useGameSocket(
   gameId: string | undefined,
-  token: string | null
-): UseGameSocketResult {
+  token: string | null,
+  onEvent: (event: GameEvent) => void
+): ConnectionStatus {
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
-  const [lastEvent, setLastEvent] = useState<GameEvent | null>(null);
+  // onEventの識別子が変わってもソケットを張り直したくないのでrefで保持
+  const onEventRef = useRef(onEvent);
+  useEffect(() => {
+    onEventRef.current = onEvent;
+  }, [onEvent]);
 
   useEffect(() => {
     if (!gameId || !token) return;
@@ -41,7 +41,7 @@ export function useGameSocket(
       socket.onmessage = (event) => {
         try {
           const parsed = JSON.parse(event.data) as GameEvent;
-          setLastEvent(parsed);
+          onEventRef.current(parsed);
         } catch {
           console.error("WebSocketメッセージのパースに失敗:", event.data);
         }
@@ -76,5 +76,5 @@ export function useGameSocket(
     };
   }, [gameId, token]);
 
-  return { status, lastEvent };
+  return status;
 }

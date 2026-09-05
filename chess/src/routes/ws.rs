@@ -35,7 +35,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, game_id: Uuid) {
         Some(Ok(Message::Text(text))) => text,
         _ => {
             let _ = socket
-                .send(Message::Text(r#"{"error":"認証メッセージが必要です"}"#.into()))
+                .send(Message::Text(
+                    r#"{"error":"認証メッセージが必要です"}"#.into(),
+                ))
                 .await;
             return;
         }
@@ -45,7 +47,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, game_id: Uuid) {
         Ok(msg) => msg.token,
         Err(_) => {
             let _ = socket
-                .send(Message::Text(r#"{"error":"認証メッセージの形式が不正です"}"#.into()))
+                .send(Message::Text(
+                    r#"{"error":"認証メッセージの形式が不正です"}"#.into(),
+                ))
                 .await;
             return;
         }
@@ -80,7 +84,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, game_id: Uuid) {
 
     if user_id != game.white_user_id && Some(user_id) != game.black_user_id {
         let _ = socket
-            .send(Message::Text(r#"{"error":"この対局の参加者ではありません"}"#.into()))
+            .send(Message::Text(
+                r#"{"error":"この対局の参加者ではありません"}"#.into(),
+            ))
             .await;
         return;
     }

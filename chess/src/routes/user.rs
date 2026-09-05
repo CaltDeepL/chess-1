@@ -8,9 +8,21 @@ use crate::errors::AppError;
 use crate::models::UserPublicResponse;
 use crate::state::AppState;
 
-/// GET /users/:id
-/// ユーザー名の参照用エンドポイント(対戦相手の表示名取得などに使う)。
-/// パスワードハッシュ等は含まない公開情報のみ返す。
+/// ユーザーの公開プロフィールを取得する
+///
+/// 対戦相手の表示名取得などに使う。パスワードハッシュ等は含まない公開情報のみ返す。
+#[utoipa::path(
+    get,
+    path = "/users/{id}",
+    tag = "users",
+    params(
+        ("id" = Uuid, Path, description = "ユーザーID"),
+    ),
+    responses(
+        (status = 200, description = "公開ユーザー情報", body = UserPublicResponse),
+        (status = 404, description = "ユーザーが見つからない"),
+    )
+)]
 pub async fn get_user(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,

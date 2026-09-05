@@ -2,40 +2,47 @@ mod auth;
 mod domain;
 mod errors;
 mod models;
+mod openapi;
 mod routes;
 pub mod state;
 
 use axum::{
-    routing::{get, post},
-    Router,
+    http::{header, Method},
+    response::Html,
+    routing::get,
+    Json, Router,
 };
-use tower_http::{cors::CorsLayer, trace::TraceLayer};
+use tower_http::cors::CorsLayer;
+use utoipa::OpenApi;
+use utoipa_axum::{router::OpenApiRouter, routes};
 
-use auth::{login, register};
-use axum::http::{header, Method};
-use routes::game::{
-    create_game, get_game, get_moves, join_game, list_games, make_move, resign_game,
-};
-use routes::health::health_check;
-use routes::user::get_user;
-use routes::ws::ws_handler;
+use openapi::ApiDoc;
 use state::AppState;
 
 pub fn build_router(state: AppState) -> Router {
-    Router::new()
-        .route("/health", get(health_check))
-        .route("/auth/register", post(register))
-        .route("/auth/login", post(login))
-        .route("/games", get(list_games).post(create_game))
-        .route("/games/:id", get(get_game))
-        .route("/games/:id/join", post(join_game))
-        .route("/games/:id/move", post(make_move))
-        .route("/games/:id/resign", post(resign_game))
-        .route("/ws/games/:id", get(ws_handler))
-        .route("/users/:id", get(get_user))
-        .route("/games/:id/moves", get(get_moves))
+    let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
+        .routes(routes!(routes::health::health_check))
+        .routes(routes!(auth::register))
+        .routes(routes!(auth::login))
+        .routes(routes!(routes::user::get_user))
+        // 同じパスの GET/POST は1つの routes!() にまとめる
+        .routes(routes!(routes::game::list_games, routes::game::create_game))
+        .routes(routes!(routes::game::get_game))
+        .routes(routes!(routes::game::get_moves))
+        .routes(routes!(routes::game::join_game))
+        .routes(routes!(routes::game::make_move))
+        .routes(routes!(routes::game::resign_game))
+        .split_for_parts();
+
+    router
+        // WebSocketは仕様の対象外(OpenAPIはHTTPのみ)なので通常のrouteで追加
+        .route("/ws/games/:id", get(routes::ws::ws_handler))
+        .route(
+            "/openapi.json",
+            get(move || async move { Json(api.clone()) }),
+        )
+        .route("/docs", get(docs))
         .layer(build_cors_layer())
-        .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
 
@@ -46,7 +53,7 @@ pub fn build_router(state: AppState) -> Router {
 const DEFAULT_DEV_ORIGINS: &str =
     "http://localhost:5173,http://localhost:5174,http://localhost:5175";
 
-pub fn build_cors_layer() -> CorsLayer {
+fn build_cors_layer() -> CorsLayer {
     let allowed_origins: Vec<axum::http::HeaderValue> = std::env::var("FRONTEND_ORIGIN")
         .unwrap_or_else(|_| DEFAULT_DEV_ORIGINS.to_string())
         .split(',')
@@ -57,4 +64,25 @@ pub fn build_cors_layer() -> CorsLayer {
         .allow_origin(allowed_origins)
         .allow_methods([Method::GET, Method::POST])
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
+}
+
+async fn docs() -> Html<&'static str> {
+    Html(
+        r#"<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>chess-app API</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script>
+    SwaggerUIBundle({ url: '/openapi.json', dom_id: '#swagger-ui' });
+  </script>
+</body>
+</html>"#,
+    )
 }

@@ -78,6 +78,33 @@ pub async fn get_auth(state: &AppState, path: &str, token: &str) -> (StatusCode,
     send(state, req).await
 }
 
+/// 認証なしのGET(JSONレスポンス)
+pub async fn get_json(state: &AppState, path: &str) -> (StatusCode, Value) {
+    let req = Request::builder()
+        .method("GET")
+        .uri(path)
+        .body(Body::empty())
+        .unwrap();
+    send(state, req).await
+}
+
+/// HTMLを返すエンドポイント用(ボディはパースせずステータスのみ確認)
+pub async fn get_html(state: &AppState, path: &str) -> (StatusCode, String) {
+    let response = chess_server::build_router(state.clone())
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(path)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    (status, String::from_utf8_lossy(&bytes).to_string())
+}
+
 pub async fn register_user(state: &AppState, username: &str) -> String {
     let (status, body) = post_json(
         state,

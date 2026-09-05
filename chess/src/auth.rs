@@ -10,8 +10,20 @@ use crate::errors::AppError;
 use crate::models::{AuthResponse, Claims, LoginRequest, RegisterRequest, UserRow};
 use crate::state::AppState;
 
-/// POST /auth/register
+/// ユーザーを新規登録し、JWTトークンを発行する
+///
 /// ユーザー名とパスワードを受け取り、Argon2でハッシュ化してDBに保存する。
+#[utoipa::path(
+    post,
+    path = "/auth/register",
+    tag = "auth",
+    request_body = RegisterRequest,
+    responses(
+        (status = 200, description = "登録成功。ユーザーIDとJWTトークンを返す", body = AuthResponse),
+        (status = 400, description = "ユーザー名が空、またはパスワードが8文字未満"),
+        (status = 409, description = "そのユーザー名は既に使われている"),
+    )
+)]
 pub async fn register(
     State(state): State<AppState>,
     Json(payload): Json<RegisterRequest>,
@@ -51,7 +63,17 @@ pub async fn register(
     Ok(Json(AuthResponse { user_id, token }))
 }
 
-/// POST /auth/login
+/// ログインしてJWTを発行する
+#[utoipa::path(
+    post,
+    path = "/auth/login",
+    tag = "auth",
+    request_body = LoginRequest,
+    responses(
+        (status = 200, description = "ログイン成功", body = AuthResponse),
+        (status = 401, description = "ユーザー名またはパスワードが違う"),
+    )
+)]
 pub async fn login(
     State(state): State<AppState>,
     Json(payload): Json<LoginRequest>,

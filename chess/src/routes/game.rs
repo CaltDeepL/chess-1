@@ -16,9 +16,20 @@ use crate::models::{
 };
 use crate::state::{AppState, GameEvent};
 
-/// GET /games?status=waiting
-/// 対局一覧を取得する。statusを指定するとその状態の対局のみに絞り込む(未指定なら全件)。
+/// 対局一覧を取得する
+///
+/// statusを指定するとその状態の対局のみに絞り込む(未指定なら全件)。
 /// ロビーには基本的に status=waiting を指定して呼び出す想定。
+#[utoipa::path(
+    get,
+    path = "/games",
+    tag = "games",
+    params(ListGamesQuery),
+    responses(
+        (status = 200, description = "対局一覧", body = Vec<GameSummary>),
+    ),
+    security(("bearer_auth" = []))
+)]
 pub async fn list_games(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -46,7 +57,16 @@ pub async fn list_games(
     Ok(Json(games))
 }
 
-/// POST /games
+/// 新しい対局を作成する
+#[utoipa::path(
+    post,
+    path = "/games",
+    tag = "games",
+    responses(
+        (status = 200, description = "対局を新規作成", body = GameCreatedResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
 pub async fn create_game(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -75,8 +95,21 @@ pub async fn create_game(
     Ok(Json(GameCreatedResponse { game_id, fen }))
 }
 
-/// GET /games/:id
+/// 対局の詳細(参加者・状態・現在の盤面)を取得する
+///
 /// 対局の参加者情報(white_user_id/black_user_id/status/result)と現在の盤面をあわせて返す。
+#[utoipa::path(
+    get,
+    path = "/games/{id}",
+    tag = "games",
+    params(
+        ("id" = Uuid, Path, description = "対局ID"),
+    ),
+    responses(
+        (status = 200, description = "対局の詳細", body = GameDetailResponse),
+        (status = 404, description = "対局が見つからない"),
+    )
+)]
 pub async fn get_game(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
@@ -108,7 +141,22 @@ pub async fn get_game(
     }))
 }
 
-/// POST /games/:id/join
+/// 対局に参加する(対戦相手として入室する)
+#[utoipa::path(
+    post,
+    path = "/games/{id}/join",
+    tag = "games",
+    params(
+        ("id" = Uuid, Path, description = "対局ID"),
+    ),
+    responses(
+        (status = 200, description = "対局に参加した", body = serde_json::Value),
+        (status = 400, description = "自分が作成した対局には参加できない"),
+        (status = 404, description = "対局が見つからない"),
+        (status = 409, description = "既に対戦相手がいる"),
+    ),
+    security(("bearer_auth" = []))
+)]
 pub async fn join_game(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
@@ -164,8 +212,24 @@ pub async fn join_game(
     ))
 }
 
-/// POST /games/:id/resign
+/// 投了する
+///
 /// 対局の参加者が投了する。相手の勝ちとして対局を終了させる。
+#[utoipa::path(
+    post,
+    path = "/games/{id}/resign",
+    tag = "games",
+    params(
+        ("id" = Uuid, Path, description = "対局ID"),
+    ),
+    responses(
+        (status = 200, description = "投了して対局を終了した", body = serde_json::Value),
+        (status = 403, description = "この対局の参加者ではない"),
+        (status = 404, description = "対局が見つからない"),
+        (status = 409, description = "既に対局が終了している"),
+    ),
+    security(("bearer_auth" = []))
+)]
 pub async fn resign_game(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
@@ -228,7 +292,24 @@ pub async fn resign_game(
     ))
 }
 
-/// POST /games/:id/move
+/// 指し手を送信する
+#[utoipa::path(
+    post,
+    path = "/games/{id}/move",
+    tag = "games",
+    params(
+        ("id" = Uuid, Path, description = "対局ID"),
+    ),
+    request_body = MoveRequest,
+    responses(
+        (status = 200, description = "指し手を適用した結果の盤面", body = GameStateResponse),
+        (status = 400, description = "指し手の形式が不正、または合法手ではない"),
+        (status = 403, description = "参加者ではない、または手番違い"),
+        (status = 404, description = "対局が見つからない"),
+        (status = 409, description = "対戦相手がまだ参加していない"),
+    ),
+    security(("bearer_auth" = []))
+)]
 pub async fn make_move(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
@@ -350,8 +431,21 @@ pub fn position_to_fen(position: &Chess) -> String {
     Fen::from_position(position.clone(), EnPassantMode::Legal).to_string()
 }
 
-/// GET /games/:id/moves
+/// 棋譜(指し手履歴)を取得する
+///
 /// 対局の指し手履歴(棋譜)を手数順に取得する。
+#[utoipa::path(
+    get,
+    path = "/games/{id}/moves",
+    tag = "games",
+    params(
+        ("id" = Uuid, Path, description = "対局ID"),
+    ),
+    responses(
+        (status = 200, description = "棋譜(指し手履歴)", body = Vec<MoveRow>),
+    ),
+    security(("bearer_auth" = []))
+)]
 pub async fn get_moves(
     State(state): State<AppState>,
     Path(game_id): Path<Uuid>,

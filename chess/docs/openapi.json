@@ -1,0 +1,688 @@
+{
+    "openapi": "3.1.0",
+    "info": {
+        "title": "chess-app API",
+        "description": "\u30aa\u30f3\u30e9\u30a4\u30f3\u5bfe\u6226\u30c1\u30a7\u30b9\u30a2\u30d7\u30ea\u306e\u30d0\u30c3\u30af\u30a8\u30f3\u30c9API\u3002\n\n`POST /auth/register` \u3067\u30a2\u30ab\u30a6\u30f3\u30c8\u3092\u4f5c\u6210\u3057\u3001\u8fd4\u5374\u3055\u308c\u305f\u30c8\u30fc\u30af\u30f3\u3092 \u53f3\u4e0a\u306e Authorize \u306b\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+        "license": {
+            "name": ""
+        },
+        "version": "0.1.0"
+    },
+    "paths": {
+        "/auth/login": {
+            "post": {
+                "tags": [
+                    "auth"
+                ],
+                "summary": "\u30ed\u30b0\u30a4\u30f3\u3057\u3066JWT\u3092\u767a\u884c\u3059\u308b",
+                "operationId": "login",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/LoginRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "\u30ed\u30b0\u30a4\u30f3\u6210\u529f",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AuthResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "\u30e6\u30fc\u30b6\u30fc\u540d\u307e\u305f\u306f\u30d1\u30b9\u30ef\u30fc\u30c9\u304c\u9055\u3046"
+                    }
+                }
+            }
+        },
+        "/auth/register": {
+            "post": {
+                "tags": [
+                    "auth"
+                ],
+                "summary": "\u30e6\u30fc\u30b6\u30fc\u3092\u65b0\u898f\u767b\u9332\u3057\u3001JWT\u30c8\u30fc\u30af\u30f3\u3092\u767a\u884c\u3059\u308b",
+                "description": "\u30e6\u30fc\u30b6\u30fc\u540d\u3068\u30d1\u30b9\u30ef\u30fc\u30c9\u3092\u53d7\u3051\u53d6\u308a\u3001Argon2\u3067\u30cf\u30c3\u30b7\u30e5\u5316\u3057\u3066DB\u306b\u4fdd\u5b58\u3059\u308b\u3002",
+                "operationId": "register",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RegisterRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "\u767b\u9332\u6210\u529f\u3002\u30e6\u30fc\u30b6\u30fcID\u3068JWT\u30c8\u30fc\u30af\u30f3\u3092\u8fd4\u3059",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AuthResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "\u30e6\u30fc\u30b6\u30fc\u540d\u304c\u7a7a\u3001\u307e\u305f\u306f\u30d1\u30b9\u30ef\u30fc\u30c9\u304c8\u6587\u5b57\u672a\u6e80"
+                    },
+                    "409": {
+                        "description": "\u305d\u306e\u30e6\u30fc\u30b6\u30fc\u540d\u306f\u65e2\u306b\u4f7f\u308f\u308c\u3066\u3044\u308b"
+                    }
+                }
+            }
+        },
+        "/games": {
+            "get": {
+                "tags": [
+                    "games"
+                ],
+                "summary": "\u5bfe\u5c40\u4e00\u89a7\u3092\u53d6\u5f97\u3059\u308b",
+                "description": "status\u3092\u6307\u5b9a\u3059\u308b\u3068\u305d\u306e\u72b6\u614b\u306e\u5bfe\u5c40\u306e\u307f\u306b\u7d5e\u308a\u8fbc\u3080(\u672a\u6307\u5b9a\u306a\u3089\u5168\u4ef6)\u3002\n\u30ed\u30d3\u30fc\u306b\u306f\u57fa\u672c\u7684\u306b status=waiting \u3092\u6307\u5b9a\u3057\u3066\u547c\u3073\u51fa\u3059\u60f3\u5b9a\u3002",
+                "operationId": "list_games",
+                "parameters": [
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "description": "\u6307\u5b9a\u6642\u306f\u3053\u306estatus\u306e\u5bfe\u5c40\u306e\u307f\u306b\u7d5e\u308a\u8fbc\u3080(\u4f8b: \"waiting\")\u3002\u672a\u6307\u5b9a\u306a\u3089\u5168\u4ef6",
+                        "required": false,
+                        "schema": {
+                            "type": [
+                                "string",
+                                "null"
+                            ]
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "\u5bfe\u5c40\u4e00\u89a7",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/GameSummary"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "games"
+                ],
+                "summary": "\u65b0\u3057\u3044\u5bfe\u5c40\u3092\u4f5c\u6210\u3059\u308b",
+                "operationId": "create_game",
+                "responses": {
+                    "200": {
+                        "description": "\u5bfe\u5c40\u3092\u65b0\u898f\u4f5c\u6210",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/GameCreatedResponse"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/games/{id}": {
+            "get": {
+                "tags": [
+                    "games"
+                ],
+                "summary": "\u5bfe\u5c40\u306e\u8a73\u7d30(\u53c2\u52a0\u8005\u30fb\u72b6\u614b\u30fb\u73fe\u5728\u306e\u76e4\u9762)\u3092\u53d6\u5f97\u3059\u308b",
+                "description": "\u5bfe\u5c40\u306e\u53c2\u52a0\u8005\u60c5\u5831(white_user_id/black_user_id/status/result)\u3068\u73fe\u5728\u306e\u76e4\u9762\u3092\u3042\u308f\u305b\u3066\u8fd4\u3059\u3002",
+                "operationId": "get_game",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "\u5bfe\u5c40ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "\u5bfe\u5c40\u306e\u8a73\u7d30",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/GameDetailResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "\u5bfe\u5c40\u304c\u898b\u3064\u304b\u3089\u306a\u3044"
+                    }
+                }
+            }
+        },
+        "/games/{id}/join": {
+            "post": {
+                "tags": [
+                    "games"
+                ],
+                "summary": "\u5bfe\u5c40\u306b\u53c2\u52a0\u3059\u308b(\u5bfe\u6226\u76f8\u624b\u3068\u3057\u3066\u5165\u5ba4\u3059\u308b)",
+                "operationId": "join_game",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "\u5bfe\u5c40ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "\u5bfe\u5c40\u306b\u53c2\u52a0\u3057\u305f",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "\u81ea\u5206\u304c\u4f5c\u6210\u3057\u305f\u5bfe\u5c40\u306b\u306f\u53c2\u52a0\u3067\u304d\u306a\u3044"
+                    },
+                    "404": {
+                        "description": "\u5bfe\u5c40\u304c\u898b\u3064\u304b\u3089\u306a\u3044"
+                    },
+                    "409": {
+                        "description": "\u65e2\u306b\u5bfe\u6226\u76f8\u624b\u304c\u3044\u308b"
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/games/{id}/move": {
+            "post": {
+                "tags": [
+                    "games"
+                ],
+                "summary": "\u6307\u3057\u624b\u3092\u9001\u4fe1\u3059\u308b",
+                "operationId": "make_move",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "\u5bfe\u5c40ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/MoveRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "\u6307\u3057\u624b\u3092\u9069\u7528\u3057\u305f\u7d50\u679c\u306e\u76e4\u9762",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/GameStateResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "\u6307\u3057\u624b\u306e\u5f62\u5f0f\u304c\u4e0d\u6b63\u3001\u307e\u305f\u306f\u5408\u6cd5\u624b\u3067\u306f\u306a\u3044"
+                    },
+                    "403": {
+                        "description": "\u53c2\u52a0\u8005\u3067\u306f\u306a\u3044\u3001\u307e\u305f\u306f\u624b\u756a\u9055\u3044"
+                    },
+                    "404": {
+                        "description": "\u5bfe\u5c40\u304c\u898b\u3064\u304b\u3089\u306a\u3044"
+                    },
+                    "409": {
+                        "description": "\u5bfe\u6226\u76f8\u624b\u304c\u307e\u3060\u53c2\u52a0\u3057\u3066\u3044\u306a\u3044"
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/games/{id}/moves": {
+            "get": {
+                "tags": [
+                    "games"
+                ],
+                "summary": "\u68cb\u8b5c(\u6307\u3057\u624b\u5c65\u6b74)\u3092\u53d6\u5f97\u3059\u308b",
+                "description": "\u5bfe\u5c40\u306e\u6307\u3057\u624b\u5c65\u6b74(\u68cb\u8b5c)\u3092\u624b\u6570\u9806\u306b\u53d6\u5f97\u3059\u308b\u3002",
+                "operationId": "get_moves",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "\u5bfe\u5c40ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "\u68cb\u8b5c(\u6307\u3057\u624b\u5c65\u6b74)",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/MoveRow"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/games/{id}/resign": {
+            "post": {
+                "tags": [
+                    "games"
+                ],
+                "summary": "\u6295\u4e86\u3059\u308b",
+                "description": "\u5bfe\u5c40\u306e\u53c2\u52a0\u8005\u304c\u6295\u4e86\u3059\u308b\u3002\u76f8\u624b\u306e\u52dd\u3061\u3068\u3057\u3066\u5bfe\u5c40\u3092\u7d42\u4e86\u3055\u305b\u308b\u3002",
+                "operationId": "resign_game",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "\u5bfe\u5c40ID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "\u6295\u4e86\u3057\u3066\u5bfe\u5c40\u3092\u7d42\u4e86\u3057\u305f",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "\u3053\u306e\u5bfe\u5c40\u306e\u53c2\u52a0\u8005\u3067\u306f\u306a\u3044"
+                    },
+                    "404": {
+                        "description": "\u5bfe\u5c40\u304c\u898b\u3064\u304b\u3089\u306a\u3044"
+                    },
+                    "409": {
+                        "description": "\u65e2\u306b\u5bfe\u5c40\u304c\u7d42\u4e86\u3057\u3066\u3044\u308b"
+                    }
+                },
+                "security": [
+                    {
+                        "bearer_auth": []
+                    }
+                ]
+            }
+        },
+        "/health": {
+            "get": {
+                "tags": [
+                    "system"
+                ],
+                "summary": "\u30b5\u30fc\u30d0\u30fc\u306e\u758e\u901a\u78ba\u8a8d\u7528\u30d8\u30eb\u30b9\u30c1\u30a7\u30c3\u30af",
+                "operationId": "health_check",
+                "responses": {
+                    "200": {
+                        "description": "\u30b5\u30fc\u30d0\u30fc\u304c\u6b63\u5e38\u306b\u7a3c\u50cd\u3057\u3066\u3044\u308b",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/users/{id}": {
+            "get": {
+                "tags": [
+                    "users"
+                ],
+                "summary": "\u30e6\u30fc\u30b6\u30fc\u306e\u516c\u958b\u30d7\u30ed\u30d5\u30a3\u30fc\u30eb\u3092\u53d6\u5f97\u3059\u308b",
+                "description": "\u5bfe\u6226\u76f8\u624b\u306e\u8868\u793a\u540d\u53d6\u5f97\u306a\u3069\u306b\u4f7f\u3046\u3002\u30d1\u30b9\u30ef\u30fc\u30c9\u30cf\u30c3\u30b7\u30e5\u7b49\u306f\u542b\u307e\u306a\u3044\u516c\u958b\u60c5\u5831\u306e\u307f\u8fd4\u3059\u3002",
+                "operationId": "get_user",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "\u30e6\u30fc\u30b6\u30fcID",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "\u516c\u958b\u30e6\u30fc\u30b6\u30fc\u60c5\u5831",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UserPublicResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "\u30e6\u30fc\u30b6\u30fc\u304c\u898b\u3064\u304b\u3089\u306a\u3044"
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "AuthResponse": {
+                "type": "object",
+                "required": [
+                    "user_id",
+                    "token"
+                ],
+                "properties": {
+                    "token": {
+                        "type": "string"
+                    },
+                    "user_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                }
+            },
+            "GameCreatedResponse": {
+                "type": "object",
+                "required": [
+                    "game_id",
+                    "fen"
+                ],
+                "properties": {
+                    "fen": {
+                        "type": "string"
+                    },
+                    "game_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                }
+            },
+            "GameDetailResponse": {
+                "type": "object",
+                "description": "GET /games/:id \u306e\u30ec\u30b9\u30dd\u30f3\u30b9",
+                "required": [
+                    "game_id",
+                    "white_user_id",
+                    "status",
+                    "fen",
+                    "is_check",
+                    "is_game_over"
+                ],
+                "properties": {
+                    "black_user_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "fen": {
+                        "type": "string"
+                    },
+                    "game_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "is_check": {
+                        "type": "boolean"
+                    },
+                    "is_game_over": {
+                        "type": "boolean"
+                    },
+                    "result": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "white_user_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                }
+            },
+            "GameStateResponse": {
+                "type": "object",
+                "required": [
+                    "game_id",
+                    "fen",
+                    "is_check",
+                    "is_game_over"
+                ],
+                "properties": {
+                    "fen": {
+                        "type": "string"
+                    },
+                    "game_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "is_check": {
+                        "type": "boolean"
+                    },
+                    "is_game_over": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "GameSummary": {
+                "type": "object",
+                "description": "GET /games \u306e\u30ec\u30b9\u30dd\u30f3\u30b91\u4ef6\u5206",
+                "required": [
+                    "id",
+                    "white_user_id",
+                    "status",
+                    "fen",
+                    "created_at"
+                ],
+                "properties": {
+                    "black_user_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "fen": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "white_user_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                }
+            },
+            "LoginRequest": {
+                "type": "object",
+                "required": [
+                    "username",
+                    "password"
+                ],
+                "properties": {
+                    "password": {
+                        "type": "string"
+                    },
+                    "username": {
+                        "type": "string"
+                    }
+                }
+            },
+            "MoveRequest": {
+                "type": "object",
+                "required": [
+                    "uci"
+                ],
+                "properties": {
+                    "uci": {
+                        "type": "string",
+                        "description": "UCI\u5f62\u5f0f\u306e\u6307\u3057\u624b(\u4f8b: \"e2e4\", \u30d7\u30ed\u30e2\u30fc\u30b7\u30e7\u30f3\u306f \"e7e8q\")"
+                    }
+                }
+            },
+            "MoveRow": {
+                "type": "object",
+                "required": [
+                    "move_number",
+                    "uci",
+                    "fen_after"
+                ],
+                "properties": {
+                    "fen_after": {
+                        "type": "string"
+                    },
+                    "move_number": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "uci": {
+                        "type": "string"
+                    }
+                }
+            },
+            "RegisterRequest": {
+                "type": "object",
+                "required": [
+                    "username",
+                    "password"
+                ],
+                "properties": {
+                    "password": {
+                        "type": "string"
+                    },
+                    "username": {
+                        "type": "string"
+                    }
+                }
+            },
+            "UserPublicResponse": {
+                "type": "object",
+                "description": "GET /users/:id \u306e\u30ec\u30b9\u30dd\u30f3\u30b9(\u516c\u958b\u3057\u3066\u3088\u3044\u60c5\u5831\u306e\u307f)",
+                "required": [
+                    "id",
+                    "username"
+                ],
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "username": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "securitySchemes": {
+            "bearer_auth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT"
+            }
+        }
+    },
+    "tags": [
+        {
+            "name": "auth",
+            "description": "\u30e6\u30fc\u30b6\u30fc\u767b\u9332\u30fb\u30ed\u30b0\u30a4\u30f3"
+        },
+        {
+            "name": "games",
+            "description": "\u5bfe\u5c40\u306e\u4f5c\u6210\u30fb\u53c2\u52a0\u30fb\u9032\u884c"
+        },
+        {
+            "name": "users",
+            "description": "\u30e6\u30fc\u30b6\u30fc\u60c5\u5831"
+        },
+        {
+            "name": "system",
+            "description": "\u758e\u901a\u78ba\u8a8d"
+        }
+    ]
+}

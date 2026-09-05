@@ -3,10 +3,12 @@ use axum::{
     http::HeaderMap,
     Json,
 };
-use shakmaty::{fen::Fen, uci::UciMove, Chess, Color, EnPassantMode, Position};
+use shakmaty::{fen::Fen, uci::UciMove, Chess, EnPassantMode, Position};
 use uuid::Uuid;
 
 use crate::auth::extract_user_id;
+use crate::domain::outcome::{determine_outcome, winner_after_resign};
+use crate::domain::player::{expected_player, role_of};
 use crate::errors::AppError;
 use crate::models::{
     GameCreatedResponse, GameDetailResponse, GameDetailRow, GameRow, GameStateResponse,
@@ -180,13 +182,10 @@ pub async fn resign_game(
     .ok_or_else(|| AppError::NotFound("対局が見つかりません".to_string()))?;
 
     // 参加者本人かどうかのチェック
-    let is_white = user_id == game.white_user_id;
-    let is_black = Some(user_id) == game.black_user_id;
-    if !is_white && !is_black {
-        return Err(AppError::Forbidden(
-            "この対局の参加者ではありません".to_string(),
-        ));
-    }
+    let role = role_of(user_id, game.white_user_id, game.black_user_id);
+    let color = role
+        .color()
+        .ok_or_else(|| AppError::Forbidden("この対局の参加者ではありません".to_string()))?;
 
     // 既に終了している対局への投了は無効
     if game.status == "finished" {
@@ -196,7 +195,7 @@ pub async fn resign_game(
     }
 
     // 投了した側の逆が勝者
-    let result = if is_white { "black_win" } else { "white_win" };
+    let result = winner_after_resign(color);
 
     let update_result = sqlx::query(
         "UPDATE games SET status = 'finished', result = $1::game_result, end_reason = 'resignation', updated_at = now() \
@@ -246,7 +245,7 @@ pub async fn make_move(
     .await?
     .ok_or_else(|| AppError::NotFound("対局が見つかりません".to_string()))?;
 
-    if user_id != game.white_user_id && Some(user_id) != game.black_user_id {
+    if !role_of(user_id, game.white_user_id, game.black_user_id).is_participant() {
         return Err(AppError::Forbidden(
             "この対局の参加者ではありません".to_string(),
         ));
@@ -263,13 +262,9 @@ pub async fn make_move(
         .get_mut(&id)
         .ok_or_else(|| AppError::NotFound("対局が見つかりません".to_string()))?;
 
-    let expected_user = match position.turn() {
-        Color::White => game.white_user_id,
-        Color::Black => game
-            .black_user_id
-            .ok_or_else(|| AppError::Conflict("対戦相手がまだ参加していません".to_string()))?,
-    };
-    if user_id != expected_user {
+    let expected = expected_player(position.turn(), game.white_user_id, game.black_user_id)
+        .ok_or_else(|| AppError::Conflict("対戦相手がまだ参加していません".to_string()))?;
+    if user_id != expected {
         return Err(AppError::Forbidden(
             "あなたの手番ではありません".to_string(),
         ));
@@ -353,23 +348,6 @@ pub async fn make_move(
 /// shakmatyのChess局面をFEN文字列に変換するヘルパー
 pub fn position_to_fen(position: &Chess) -> String {
     Fen::from_position(position.clone(), EnPassantMode::Legal).to_string()
-}
-
-/// 終局した局面から (result, end_reason) を判定するヘルパー
-fn determine_outcome(position: &Chess) -> (&'static str, &'static str) {
-    if position.is_checkmate() {
-        let winner = match position.turn() {
-            Color::White => "black_win",
-            Color::Black => "white_win",
-        };
-        (winner, "checkmate")
-    } else if position.is_stalemate() {
-        ("draw", "stalemate")
-    } else if position.is_insufficient_material() {
-        ("draw", "insufficient_material")
-    } else {
-        ("draw", "other")
-    }
 }
 
 /// GET /games/:id/moves

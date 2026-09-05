@@ -1,8 +1,10 @@
 mod auth;
+mod domain;
 mod errors;
 mod models;
 mod routes;
 pub mod state;
+
 
 use axum::{
     routing::{get, post},

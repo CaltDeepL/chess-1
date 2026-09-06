@@ -1,0 +1,101 @@
+# 依存の更新を Dependabot に任せる。
+#
+# 方針:
+#   - patch / minor はまとめて1本の PR にする。個別に来ると Cargo と npm で
+#     週に10本以上開くことになり、数が多いと結局まとめて放置される
+#   - major は破壊的変更を含むので個別の PR にして単独で見る
+#   - 自動マージはしない。CI が緑でも依存の更新は挙動が変わりうる
+#
+# Dependabot の PR も pull_request トリガーで CI が走る。
+# デプロイは main への workflow_run で動くため、PR 段階では起きない。
+
+version: 2
+
+updates:
+  # ---------------------------------------------------------------------------
+  # バックエンド（Rust）
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: "cargo"
+    directory: "/chess"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - "dependencies"
+      - "rust"
+    groups:
+      # 破壊的変更を含まない更新はまとめる
+      cargo-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ---------------------------------------------------------------------------
+  # フロントエンド（npm）
+  #
+  # package.json / vite.config.ts / index.html はリポジトリ直下にあり、
+  # frontend/ はソース（main.tsx, pages/, components/）だけを持つ。
+  # したがって directory は "/" であって "/frontend" ではない。
+  #
+  # 下の github-actions も "/" を指定しているが、Dependabot は
+  # package-ecosystem と directory の組で識別するため衝突しない。
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - "dependencies"
+      - "frontend"
+    groups:
+      # 型定義は本体と一緒に上がることが多いのでまとめる
+      types:
+        patterns:
+          - "@types/*"
+      # ESLint と関連プラグインはバージョンが連動する。
+      # 別々の PR にすると片方だけ上がって設定が壊れる
+      lint:
+        patterns:
+          - "eslint"
+          - "eslint-*"
+          - "@eslint/*"
+          - "typescript-eslint"
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ---------------------------------------------------------------------------
+  # GitHub Actions
+  #
+  # ワークフローで使う actions/* のバージョン。更新頻度は低いが、
+  # 古いまま放置すると Node のランタイム廃止である日突然 CI が動かなくなる
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    groups:
+      actions:
+        patterns:
+          - "*"

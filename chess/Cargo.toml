@@ -17,7 +17,7 @@ shakmaty = "0.27"
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "macros"] }
 argon2 = "0.5"
 rand = "0.8"
-jsonwebtoken = "9"
+jsonwebtoken = "11"
 chrono = { version = "0.4", features = ["serde"] }
 dotenvy = "0.15"
 utoipa = { version = "5", features = ["axum_extras", "uuid", "chrono"] }

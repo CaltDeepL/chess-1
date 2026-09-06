@@ -89,9 +89,12 @@ API は Swagger UI からブラウザ上で試せます。`POST /auth/register` 
 ```
 chess-app/
 ├── .github/workflows/        # ci.yml / deploy.yml / sweep.yml
+├── package.json              # Vite プロジェクトのルートはリポジトリ直下
+├── vite.config.ts            # (frontend/ はソースのみで package.json は無い)
+├── index.html                # <script src="/frontend/main.tsx">
 ├── chess/                    # バックエンド（Rust）
 │   ├── Dockerfile            # マルチステージビルド
-│   ├── compose.yaml          # Postgres + API
+│   ├── docker-compose.yml    # Postgres + API
 │   ├── migrations/           # sqlx マイグレーション
 │   ├── docs/                 # タスクごとの設計メモ
 │   └── src/
@@ -103,7 +106,8 @@ chess-app/
 │       ├── abandon.rs        # 切断・離脱の判定と sweep
 │       ├── domain/           # 純粋関数（outcome / player / history / elo / password / abandon）
 │       └── routes/           # health / game / user / history / ranking / ws / internal
-└── frontend/                 # Vite + React + TypeScript
+└── frontend/                 # Vite + React + TypeScript のソース(package.jsonは無い)
+    ├── main.tsx
     ├── api/                  # fetch ラッパ / エラー正規化
     ├── context/              # AuthContext / ToastContext
     ├── hooks/                # useGameSocket（接続管理・再接続）
@@ -388,10 +392,9 @@ docker compose up --build -d
 curl http://localhost:3000/health
 ```
 
-マイグレーションは起動時に自動で適用されます。手動で流す場合は sqlx CLI をホスト側で実行します。
+マイグレーションは起動時に自動で適用されます。手動で流す場合は sqlx CLI をホスト側で実行します（`chess-1/chess` のまま)。
 
 ```bash
-cd chess
 sqlx migrate info
 sqlx migrate run
 ```
@@ -411,8 +414,11 @@ sqlx migrate run
 
 ### フロントエンド
 
+`package.json` はリポジトリ直下（`chess-1/`）にあります。`frontend/` はソースのみで、
+ここで `npm install` を実行しても `package.json` が無く失敗します。
+
 ```bash
-cd ../frontend
+cd ..   # chess-1/chess から、リポジトリ直下の chess-1/ へ
 npm install
 npm run dev
 ```

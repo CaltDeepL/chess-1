@@ -1,0 +1,51 @@
+# 切断されたまま猶予を過ぎた対局を終了させる。
+#
+# なぜ外から叩くのか:
+#   Render の無料枠はリクエストが無いとスピンダウンするため、
+#   アプリ内で tokio::spawn したタイマーはプロセスごと消える。
+#   60秒後に発火するはずの判定が失われ、対局が in_progress のまま
+#   残り続ける。ops-hub と同じく、外部の定期実行で蹴る形にした。
+
+name: sweep abandoned games
+
+on:
+  schedule:
+    # GitHub Actions の最短間隔は5分。混雑時は数分遅れることがあるため、
+    # 猶予60秒に対して10分間隔でも「いずれ必ず決着する」ことだけを保証する。
+    # 残っている側が画面を開いていれば、WebSocket 接続時の判定で即座に決着する
+    # ので、この定期実行は「誰も見ていない対局の後始末」が役割。
+    - cron: "*/10 * * * *"
+  # 手動実行（動作確認用）
+  workflow_dispatch:
+
+# 前の実行が終わらないうちに次が始まらないようにする。
+# サーバー側でも advisory lock を取っているので二重実行しても壊れないが、
+# 無駄な起動を避ける
+concurrency:
+  group: sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call sweep endpoint
+        run: |
+          # スピンダウンからの復帰に時間がかかるため、長めに待つ
+          response=$(curl -sS -X POST "${{ secrets.APP_URL }}/internal/sweep" \
+            -H "X-Sweep-Token: ${{ secrets.SWEEP_TOKEN }}" \
+            --max-time 120 \
+            --retry 2 \
+            --retry-delay 10 \
+            -w "\n%{http_code}")
+
+          body=$(echo "$response" | sed '$d')
+          status=$(echo "$response" | tail -n1)
+
+          echo "status=$status"
+          echo "body=$body"
+
+          if [ "$status" != "200" ]; then
+            echo "::error::sweep が失敗しました (HTTP $status)"
+            exit 1
+          fi

@@ -521,6 +521,9 @@ SPA のため、Static Site 側で `/*` → `/index.html` の Rewrite ルール�
 | 28 | OpenAPI 仕様の生成と Swagger UI の配信 |
 | 29 | エラーレスポンスの RFC 9457 化（Problem Details・OpenAPI 反映・計51件） |
 | 30 | WebSocket の統合テスト（配信・認証・参加者チェック・対局間の隔離、計7件） |
+| 31 | WebSocket 接続の確実性（connected イベント・認証待ちタイムアウト） |
+| 32 | 対局履歴 API（GET /users/me/games・自分視点の勝敗判定・統合テスト9件） |
+| 33 | 対局履歴の画面（一覧・棋譜再生）と終了済み対局取得の修正 |
 
 ---
 
@@ -528,8 +531,7 @@ SPA のため、Static Site 側で `/*` → `/index.html` の Rewrite ルール�
 
 | 優先 | 項目 | 内容 |
 |---|---|---|
-| 1 | 対局履歴の閲覧 | 棋譜は DB にあるが、過去対局を見返す UI が未実装 |
-| 2 | レーティング | Elo による対局結果の反映 |
+| 1 | レーティング | Elo による対局結果の反映 |
 
 ---
 

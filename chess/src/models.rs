@@ -78,6 +78,7 @@ pub struct GameDetailRow {
     pub black_user_id: Option<Uuid>,
     pub status: String,
     pub result: Option<String>,
+    pub fen: String,
 }
 
 /// GET /games/:id のレスポンス

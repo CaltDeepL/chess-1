@@ -137,13 +137,25 @@ pub async fn get_auth(
 }
 
 /// 認証なしのGET(JSONレスポンス)
-pub async fn get_json(state: &AppState, path: &str) -> (StatusCode, Value) {
-    let req = Request::builder()
-        .method("GET")
-        .uri(path)
-        .body(Body::empty())
+pub async fn get_json(state: &AppState, path: &str) -> (StatusCode, serde_json::Value) {
+    let response = chess_server::build_router(state.clone())
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(path)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
         .unwrap();
-    send(state, req).await
+
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+
+    (status, json)
 }
 
 /// HTMLを返すエンドポイント用(ボディはパースせずステータスのみ確認)

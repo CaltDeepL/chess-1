@@ -3,7 +3,7 @@ use axum::{
     http::HeaderMap,
     Json,
 };
-use shakmaty::{fen::Fen, uci::UciMove, Chess, EnPassantMode, Position};
+use shakmaty::{fen::Fen, uci::UciMove, CastlingMode, Chess, EnPassantMode, Position};
 use uuid::Uuid;
 
 use crate::auth::extract_user_id;
@@ -97,7 +97,8 @@ pub async fn create_game(
 
 /// 対局の詳細(参加者・状態・現在の盤面)を取得する
 ///
-/// 対局の参加者情報(white_user_id/black_user_id/status/result)と現在の盤面をあわせて返す。
+/// 進行中の対局はメモリ上の局面を、終了済み・サーバー再起動後の対局は
+/// DB に保存された FEN を使う。
 #[utoipa::path(
     get,
     path = "/games/{id}",
@@ -116,7 +117,7 @@ pub async fn get_game(
     Path(id): Path<Uuid>,
 ) -> Result<Json<GameDetailResponse>, AppError> {
     let row = sqlx::query_as::<_, GameDetailRow>(
-        "SELECT white_user_id, black_user_id, status::text AS status, result::text AS result \
+        "SELECT white_user_id, black_user_id, status::text AS status, result::text AS result, fen \
          FROM games WHERE id = $1",
     )
     .bind(id)
@@ -124,11 +125,16 @@ pub async fn get_game(
     .await?
     .ok_or_else(|| AppError::NotFound("対局が見つかりません".to_string()))?;
 
-    let games = state.games.read().await;
-
-    let position = games
-        .get(&id)
-        .ok_or_else(|| AppError::NotFound("対局が見つかりません".to_string()))?;
+    // 進行中の対局はメモリ上の局面が正。終局するとメモリから削除されるため、
+    // 無い場合は DB の FEN から局面を復元する。
+    // (サーバー再起動後の進行中対局もこの経路を通る)
+    let position = {
+        let games = state.games.read().await;
+        match games.get(&id) {
+            Some(p) => p.clone(),
+            None => position_from_fen(&row.fen)?,
+        }
+    };
 
     Ok(Json(GameDetailResponse {
         game_id: id,
@@ -136,12 +142,11 @@ pub async fn get_game(
         black_user_id: row.black_user_id,
         status: row.status,
         result: row.result,
-        fen: position_to_fen(position),
+        fen: position_to_fen(&position),
         is_check: position.is_check(),
         is_game_over: position.is_game_over(),
     }))
 }
-
 /// 対局に参加する(対戦相手として入室する)
 #[utoipa::path(
     post,
@@ -440,6 +445,17 @@ pub async fn make_move(
 /// shakmatyのChess局面をFEN文字列に変換するヘルパー
 pub fn position_to_fen(position: &Chess) -> String {
     Fen::from_position(position.clone(), EnPassantMode::Legal).to_string()
+}
+
+/// DB に保存された FEN から局面を復元する。
+///
+/// FEN が壊れているのは DB 側の異常なので 500 として扱う。
+/// クライアントの入力に起因しないため 400 ではない。
+fn position_from_fen(fen: &str) -> Result<Chess, AppError> {
+    fen.parse::<Fen>()
+        .map_err(|e| AppError::Internal(format!("保存されたFENの解析に失敗しました: {e}")))?
+        .into_position(CastlingMode::Standard)
+        .map_err(|e| AppError::Internal(format!("保存されたFENが不正な局面です: {e}")))
 }
 
 /// 棋譜(指し手履歴)を取得する

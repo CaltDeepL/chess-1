@@ -23,7 +23,7 @@ export default function GameOverOverlay({ result, myColor }: GameOverOverlayProp
     (result === "white_win" && myColor === "black") ||
     (result === "black_win" && myColor === "white");
 
-  const heading = didWin ? "WIN" : didLose ? "ROSS" : RESULT_LABEL[result] ?? "game set";
+  const heading = didWin ? "WIN" : didLose ? "LOSE" : RESULT_LABEL[result] ?? "対局終了";
 
   return (
     <div className="game-over-overlay">

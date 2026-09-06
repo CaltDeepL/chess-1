@@ -786,3 +786,190 @@ label {
   font-size: 0.9rem;
   margin: 0 0 1.5rem;
 }
+
+/* ==========================================================================
+   既存のスタイルシート末尾に追加する。
+   .game-layout / .game-board-area は GamePage と共用（再生画面でも使う）。
+   ========================================================================== */
+
+/* --- 対局履歴 --- */
+
+.history-page {
+  max-width: 960px;   /* task-21/22 と同じ。中身をグリッドや横並びにするなら器も広げる */
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.history-header > div {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.history-actions {
+  margin-bottom: 1rem;
+}
+
+.history-error {
+  color: #c0392b;
+}
+
+.history-empty {
+  padding: 2rem 0;
+  text-align: center;
+  opacity: 0.8;
+}
+
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.history-item-button {
+  width: 100%;
+  display: grid;
+  /* 勝敗 / 相手 / 手番 / 終局理由 / 手数 / 日時 */
+  grid-template-columns: 4rem 1fr 4rem 8rem 4rem 10rem;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.history-item-button:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* 勝敗が一目で分かるよう左端に色を付ける */
+.history-item--win .history-item-button {
+  border-left: 4px solid #2ecc71;
+}
+.history-item--loss .history-item-button {
+  border-left: 4px solid #e74c3c;
+}
+.history-item--draw .history-item-button {
+  border-left: 4px solid #95a5a6;
+}
+
+.history-outcome {
+  font-weight: bold;
+}
+
+.history-date {
+  opacity: 0.7;
+  font-size: 0.85em;
+}
+
+.history-pagination {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+/* 狭い画面ではグリッドをやめて折り返す */
+@media (max-width: 700px) {
+  .history-item-button {
+    grid-template-columns: 4rem 1fr;
+  }
+  .history-color,
+  .history-reason,
+  .history-moves {
+    grid-column: 2;
+    font-size: 0.85em;
+    opacity: 0.8;
+  }
+  .history-date {
+    grid-column: 1 / -1;
+  }
+}
+
+/* --- 棋譜の再生 --- */
+
+.review-page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.review-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.review-status-bar {
+  display: flex;
+  gap: 1rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.review-moves {
+  min-width: 12rem;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.review-move-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.review-move-list button {
+  width: 100%;
+  text-align: left;
+  padding: 0.25rem 0.5rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.review-move-list button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.review-move-list button.is-selected {
+  background: rgba(255, 255, 255, 0.2);
+  font-weight: bold;
+}
+
+.review-move-number {
+  display: inline-block;
+  min-width: 2rem;
+  opacity: 0.6;
+}
+
+.review-controls {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.review-controls button {
+  min-width: 3rem;
+  padding: 0.5rem;
+}
+
+.review-hint {
+  text-align: center;
+  font-size: 0.85em;
+  opacity: 0.6;
+}

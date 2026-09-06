@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate,Link } from "react-router-dom";
 import { useAuth } from "../context/useAuth";
 import { getGames, createGame, joinGame } from "../api/games";
 import GameList from "../components/GameList";
@@ -96,6 +96,7 @@ export default function LobbyPage() {
       <header className="lobby-header">
         <h1>ロビー</h1>
         <div>
+          <Link to="/history">対局履歴</Link>
           <span>{user?.username} さん</span>
           <button onClick={logout}>ログアウト</button>
         </div>

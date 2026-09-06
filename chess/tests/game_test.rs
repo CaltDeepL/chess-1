@@ -167,3 +167,68 @@ async fn alternating_moves_are_recorded_in_order(pool: PgPool) {
     let ucis: Vec<String> = rows.iter().map(|r| r.get::<String, _>("uci")).collect();
     assert_eq!(ucis, vec!["e2e4", "e7e5", "g1f3"]);
 }
+
+
+/// 投了で終了した対局も GET /games/:id で取得できる。
+///
+/// 進行中の対局はメモリ上の局面を返すが、終局時にメモリから削除されるため、
+/// 以前は DB に行があるのに 404 になっていた。棋譜の再生画面と、
+/// 終局後のリロードの両方がこれで壊れていた。
+#[sqlx::test(migrations = "./migrations")]
+async fn finished_game_is_still_retrievable(pool: PgPool) {
+    let state = test_state(pool);
+    let white = register_user(&state, "white").await;
+    let black = register_user(&state, "black").await;
+    let game_id = create_game(&state, &white).await;
+    post_auth(&state, &format!("/games/{game_id}/join"), &black).await;
+ 
+    make_move(&state, &game_id, &white, "e2e4").await;
+    post_auth(&state, &format!("/games/{game_id}/resign"), &white).await;
+ 
+    let (status, body) = get_json(&state, &format!("/games/{game_id}")).await;
+ 
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["status"], "finished");
+    assert_eq!(body["result"], "black_win");
+    // 最終局面が DB の FEN から復元されている
+    assert!(
+        body["fen"].as_str().unwrap().starts_with("rnbqkbnr/pppppppp"),
+        "初期局面のままではなく、1手指した後の局面が返る: {}",
+        body["fen"]
+    );
+}
+ 
+/// チェックメイトで終了した対局も取得でき、終局判定が復元される
+#[sqlx::test(migrations = "./migrations")]
+async fn checkmated_game_reports_game_over(pool: PgPool) {
+    let state = test_state(pool);
+    let white = register_user(&state, "white").await;
+    let black = register_user(&state, "black").await;
+    let game_id = create_game(&state, &white).await;
+    post_auth(&state, &format!("/games/{game_id}/join"), &black).await;
+ 
+    // Fool's mate
+    make_move(&state, &game_id, &white, "f2f3").await;
+    make_move(&state, &game_id, &black, "e7e5").await;
+    make_move(&state, &game_id, &white, "g2g4").await;
+    make_move(&state, &game_id, &black, "d8h4").await;
+ 
+    let (status, body) = get_json(&state, &format!("/games/{game_id}")).await;
+ 
+    assert_eq!(status, StatusCode::OK);
+    // FEN から復元した局面でも終局・王手の判定が効く
+    assert_eq!(body["is_game_over"], true);
+    assert_eq!(body["is_check"], true);
+    assert_eq!(body["end_reason"].is_null(), true, "この応答に end_reason は含まれない");
+}
+ 
+/// 存在しない対局は従来どおり404
+#[sqlx::test(migrations = "./migrations")]
+async fn unknown_game_returns_404(pool: PgPool) {
+    let state = test_state(pool);
+    let missing = uuid::Uuid::new_v4();
+ 
+    let (status, _) = get_json(&state, &format!("/games/{missing}")).await;
+ 
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}

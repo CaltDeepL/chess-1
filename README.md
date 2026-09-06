@@ -287,7 +287,7 @@ WHERE id = $2 AND black_user_id IS NULL
 
 | 領域 | 技術 |
 |---|---|
-| バックエンド | Rust 1.96 / axum 0.7 |
+| バックエンド | Rust 1.96 / axum 0.8 |
 | チェスルール判定 | shakmaty |
 | DB | PostgreSQL 16 |
 | DB アクセス | sqlx（ORM 不使用） |
@@ -568,6 +568,8 @@ SPA のため、Static Site 側で `/*` → `/index.html` の Rewrite ルール�
 | 35 | パスワード要件の見直し（長さ中心・拒否リスト・文字数カウント修正） |
 | 36 | 対局からの離脱の扱い（切断猶予・ログアウト即敗北・sweep の定期実行） |
 | 37 | パスワード入力の改善（表示トグル・要件の案内） |
+| 38 | Dependabot の導入（Cargo / npm / GitHub Actions、グループ化） |
+| 39 | axum 0.8 系への移行 |
 
 ## Future Work
 

@@ -29,8 +29,8 @@ fn openapi_router() -> (Router<AppState>, utoipa::openapi::OpenApi) {
         .routes(routes!(routes::health::health_check))
         .routes(routes!(auth::register))
         .routes(routes!(auth::login))
-        // /users/ranking は /users/:id より先に評価される必要はない(axumは
-        // 静的セグメントを優先する)が、読みやすさのため /users/:id の前に置く。
+        // /users/ranking は /users/{id} より先に評価される必要はない(axumは
+        // 静的セグメントを優先する)が、読みやすさのため /users/{id} の前に置く。
         .route(
             "/users/ranking",
             axum::routing::get(crate::routes::ranking::get_ranking),
@@ -49,7 +49,7 @@ fn openapi_router() -> (Router<AppState>, utoipa::openapi::OpenApi) {
         .routes(routes!(routes::game::resign_game))
         .route("/auth/logout", axum::routing::post(crate::auth::logout))
         .route(
-            "/games/:id/claim-abandonment",
+            "/games/{id}/claim-abandonment",
             axum::routing::post(crate::routes::game::claim_abandonment),
         )
         .split_for_parts()
@@ -66,7 +66,7 @@ pub fn build_router(state: AppState) -> Router {
 
     router
         // WebSocketは仕様の対象外(OpenAPIはHTTPのみ)なので通常のrouteで追加
-        .route("/ws/games/:id", get(routes::ws::ws_handler))
+        .route("/ws/games/{id}", get(routes::ws::ws_handler))
         // 運用用の内部APIなのでOpenAPIには載せない
         .route(
             "/internal/sweep",

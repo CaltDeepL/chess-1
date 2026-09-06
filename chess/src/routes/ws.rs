@@ -147,7 +147,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, game_id: Uuid) {
                 remaining_seconds: remaining,
             };
             let json = serde_json::to_string(&event).unwrap_or_default();
-            let _ = socket.send(Message::Text(json)).await;
+            let _ = socket.send(Message::Text(json.into())).await;
         }
         Ok(None) => {}
         Err(e) => tracing::error!(error = ?e, "相手の切断状態の取得に失敗"),
@@ -168,7 +168,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, game_id: Uuid) {
     let send_task = tokio::spawn(async move {
         while let Ok(event) = receiver.recv().await {
             let json = serde_json::to_string(&event).unwrap_or_default();
-            if ws_sender.send(Message::Text(json)).await.is_err() {
+            if ws_sender.send(Message::Text(json.into())).await.is_err() {
                 break;
             }
         }

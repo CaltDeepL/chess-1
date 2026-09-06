@@ -262,7 +262,7 @@ pub async fn open_ws(addr: SocketAddr, game_id: &str) -> WsStream {
 /// 認証メッセージを送る
 pub async fn send_auth(ws: &mut WsStream, token: &str) {
     let msg = serde_json::json!({ "token": token }).to_string();
-    ws.send(Message::Text(msg))
+    ws.send(Message::Text(msg.into()))
         .await
         .expect("認証メッセージの送信に失敗した");
 }
@@ -329,7 +329,7 @@ pub async fn assert_no_event(ws: &mut WsStream) {
 
 /// 任意の文字列をそのまま送る(不正な認証メッセージの検証用)
 pub async fn ws_send_raw(ws: &mut WsStream, text: &str) {
-    ws.send(Message::Text(text.to_string()))
+    ws.send(Message::Text(text.to_string().into()))
         .await
         .expect("送信に失敗した");
 }

@@ -221,9 +221,8 @@ async fn checkmated_game_reports_game_over(pool: PgPool) {
     // FEN から復元した局面でも終局・王手の判定が効く
     assert_eq!(body["is_game_over"], true);
     assert_eq!(body["is_check"], true);
-    assert_eq!(
+    assert!(
         body["end_reason"].is_null(),
-        true,
         "この応答に end_reason は含まれない"
     );
 }

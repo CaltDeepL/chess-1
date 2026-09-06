@@ -14,6 +14,7 @@ import GamePage from "./pages/GamePage";
 import HomePage from "./pages/HomePage";
 import HistoryPage from "./pages/HistoryPage";
 import ReviewPage from "./pages/ReviewPage";
+import RankingPage from "./pages/RankingPage";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
@@ -59,6 +60,7 @@ function AppRoutes() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/" element={<HomePage />} />
+        <Route path="/ranking" element={<RankingPage />} />
         <Route
           path="/lobby"
           element={

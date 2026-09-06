@@ -288,6 +288,8 @@ pub async fn resign_game(
         ));
     }
 
+    crate::rating::apply_rating(&state.db, id).await?;
+
     // メモリ上の対局データも削除(進行中対局の管理対象から外す)
     state.games.write().await.remove(&id);
 
@@ -418,6 +420,8 @@ pub async fn make_move(
                 }
 
                 tracing::info!(%id, result, end_reason, "game finished");
+
+                crate::rating::apply_rating(&state.db, id).await?;
 
                 // 終局もあわせて配信
                 let _ = state.game_channel(id).await.send(GameEvent::GameOver {

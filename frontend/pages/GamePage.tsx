@@ -37,7 +37,9 @@ export default function GamePage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isResigning, setIsResigning] = useState(false);
   const [opponentId, setOpponentId] = useState<string | null>(null);
-  const [opponentName, setOpponentName] = useState<string | null>(null);
+  const [opponent, setOpponent] = useState<{ username: string; rating: number } | null>(
+    null
+  );
   const [pendingPromotion, setPendingPromotion] = useState<{
     source: string;
     target: string;
@@ -99,8 +101,8 @@ export default function GamePage() {
   useEffect(() => {
     if (!opponentId) return;
     getUser(opponentId)
-      .then((res) => setOpponentName(res.username))
-      .catch(() => setOpponentName(null));
+      .then((res) => setOpponent({ username: res.username, rating: res.rating }))
+      .catch(() => setOpponent(null));
   }, [opponentId]);
 
   const myColor: "white" | "black" | null = !game || !user
@@ -204,7 +206,9 @@ export default function GamePage() {
       <div className="game-status-bar">
         <ConnectionLED status={status} />
         <span>手番: {turn === "white" ? "白" : "黒"}</span>
-        <span>対戦相手: {opponentName ?? "参加待ち"}</span>
+        <span>
+          対戦相手: {opponent ? `${opponent.username} (${opponent.rating})` : "参加待ち"}
+        </span>
         {result && <span className="game-result">結果: {result}</span>}
       </div>
 

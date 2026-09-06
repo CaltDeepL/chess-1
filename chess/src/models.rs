@@ -40,6 +40,7 @@ pub struct UserRow {
 pub struct UserPublicResponse {
     pub id: Uuid,
     pub username: String,
+    pub rating: i32,
 }
 
 /// gamesテーブルの行に対応する型(join_game/make_moveで使用)

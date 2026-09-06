@@ -34,6 +34,7 @@ struct HistoryRow {
     end_reason: Option<String>,
     move_count: i64,
     finished_at: DateTime<Utc>,
+    my_rating_delta: Option<i32>,
 }
 
 /// 履歴一覧の1件
@@ -52,6 +53,8 @@ pub struct GameHistoryItem {
     pub end_reason: Option<String>,
     pub move_count: i64,
     pub finished_at: DateTime<Utc>,
+    /// この対局での自分のレーティング変動。未適用なら null
+    pub my_rating_delta: Option<i32>,
 }
 
 /// GET /users/me/games
@@ -103,7 +106,11 @@ pub async fn list_my_games(
             g.end_reason,
             COALESCE((SELECT count(*) FROM moves m WHERE m.game_id = g.id), 0)::bigint
                 AS move_count,
-            g.updated_at AS finished_at
+            g.updated_at AS finished_at,
+            CASE WHEN g.white_user_id = $1
+                 THEN g.white_rating_delta
+                 ELSE g.black_rating_delta
+            END AS my_rating_delta
         FROM games g
         JOIN users w ON w.id = g.white_user_id
         LEFT JOIN users b ON b.id = g.black_user_id
@@ -139,6 +146,7 @@ pub async fn list_my_games(
                 end_reason: row.end_reason,
                 move_count: row.move_count,
                 finished_at: row.finished_at,
+                my_rating_delta: row.my_rating_delta,
             }
         })
         .collect();

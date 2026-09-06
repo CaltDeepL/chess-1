@@ -3,6 +3,7 @@ mod domain;
 mod errors;
 mod models;
 mod openapi;
+pub mod rating;
 mod routes;
 pub mod state;
 
@@ -27,6 +28,12 @@ fn openapi_router() -> (Router<AppState>, utoipa::openapi::OpenApi) {
         .routes(routes!(routes::health::health_check))
         .routes(routes!(auth::register))
         .routes(routes!(auth::login))
+        // /users/ranking は /users/:id より先に評価される必要はない(axumは
+        // 静的セグメントを優先する)が、読みやすさのため /users/:id の前に置く。
+        .route(
+            "/users/ranking",
+            axum::routing::get(crate::routes::ranking::get_ranking),
+        )
         .routes(routes!(routes::user::get_user))
         .route(
             "/users/me/games",

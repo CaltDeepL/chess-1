@@ -7,6 +7,23 @@ export interface User {
 export interface UserPublicResponse {
   id: string;
   username: string;
+  rating: number;
+}
+
+// GET /users/ranking のレスポンス1件
+export interface RankingEntry {
+  rank: number;
+  user_id: string;
+  username: string;
+  rating: number;
+  games_played: number;
+}
+
+// GET /users/ranking のレスポンス
+export interface RankingResponse {
+  entries: RankingEntry[];
+  /** 認証済みの場合のみ。上位圏外でも自分の順位が入る */
+  me: RankingEntry | null;
 }
 
 // バックエンドの /auth/register, /auth/login レスポンス(user_idのみ、usernameは含まない)
@@ -96,4 +113,6 @@ export interface GameHistoryItem {
   end_reason: string | null;
   move_count: number;
   finished_at: string;
+  /** この対局でのレーティング変動。未適用なら null */
+  my_rating_delta: number | null;
 }

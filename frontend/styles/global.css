@@ -839,8 +839,8 @@ label {
 .history-item-button {
   width: 100%;
   display: grid;
-  /* 勝敗 / 相手 / 手番 / 終局理由 / 手数 / 日時 */
-  grid-template-columns: 4rem 1fr 4rem 8rem 4rem 10rem;
+  /* 勝敗 / 相手 / 手番 / 終局理由 / 変動値 / 手数 / 日時 */
+  grid-template-columns: 4rem 1fr 4rem 8rem 3.5rem 4rem 10rem;
   align-items: center;
   gap: 0.75rem;
   padding: 0.75rem 1rem;
@@ -973,3 +973,88 @@ label {
   font-size: 0.85em;
   opacity: 0.6;
 }
+
+
+.ranking-page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+ 
+.ranking-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+ 
+.ranking-error {
+  color: #c0392b;
+}
+ 
+.ranking-empty {
+  padding: 2rem 0;
+  text-align: center;
+  opacity: 0.8;
+}
+ 
+.ranking-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+}
+ 
+.ranking-table th,
+.ranking-table td {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+ 
+/* 順位・レーティング・対局数は数値なので右寄せ */
+.ranking-table th:first-child,
+.ranking-table td:first-child,
+.ranking-table th:nth-child(3),
+.ranking-table td:nth-child(3),
+.ranking-table th:nth-child(4),
+.ranking-table td:nth-child(4) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+ 
+.ranking-table tr.is-me {
+  background: rgba(255, 255, 255, 0.12);
+  font-weight: bold;
+}
+ 
+.ranking-me {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px dashed rgba(255, 255, 255, 0.2);
+}
+ 
+.ranking-me p {
+  margin: 0;
+  font-size: 0.85em;
+  opacity: 0.7;
+}
+ 
+.ranking-actions {
+  margin-top: 1.5rem;
+}
+ 
+/* --- 履歴一覧のレーティング変動 --- */
+ 
+.history-delta {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+ 
+.history-delta--up {
+  color: #2ecc71;
+}
+ 
+.history-delta--down {
+  color: #e74c3c;
+}
+ 

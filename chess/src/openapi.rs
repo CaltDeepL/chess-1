@@ -15,10 +15,13 @@ use utoipa::{
     modifiers(&SecurityAddon),
     paths(
         crate::routes::history::list_my_games,
+        crate::routes::ranking::get_ranking,
     ),
     components(schemas(
         crate::errors::ProblemDetails,
         crate::routes::history::GameHistoryItem,
+        crate::routes::ranking::RankingEntry,
+        crate::routes::ranking::RankingResponse,
     )),
     tags(
         (name = "auth", description = "ユーザー登録・ログイン"),

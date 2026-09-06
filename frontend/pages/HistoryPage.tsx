@@ -116,6 +116,19 @@ export default function HistoryPage() {
                     ? END_REASON_LABELS[game.end_reason] ?? game.end_reason
                     : "―"}
                 </span>
+                <span
+                  className={`history-delta history-delta--${
+                    game.my_rating_delta === null
+                      ? "none"
+                      : game.my_rating_delta >= 0
+                      ? "up"
+                      : "down"
+                  }`}
+                >
+                  {game.my_rating_delta === null
+                    ? ""
+                    : `${game.my_rating_delta > 0 ? "+" : ""}${game.my_rating_delta}`}
+                </span>
                 <span className="history-moves">{game.move_count}手</span>
                 <span className="history-date">{formatDate(game.finished_at)}</span>
               </button>

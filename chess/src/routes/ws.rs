@@ -110,6 +110,18 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, game_id: Uuid) {
     // 3. この対局用のブロードキャストチャンネルを取得(無ければ作成)
     let mut receiver = state.game_channel(game_id).await.subscribe();
 
+    // 接続を記録し、切断時刻を消す
+    if let Err(e) = crate::abandon::mark_connected(&state, game_id, user_id).await {
+        tracing::error!(error = ?e, "接続の記録に失敗");
+    }
+
+    // 相手が猶予を過ぎていればここで決着させる。
+    // 残っている側が画面を開いた時点で即座に判定されるので、
+    // 定期実行を待つ必要がない
+    if let Err(e) = crate::abandon::finish_if_abandoned(&state, game_id).await {
+        tracing::error!(error = ?e, "放棄判定に失敗");
+    }
+
     tracing::info!(%game_id, %user_id, "websocket connected");
 
     // 購読が実際に始まったことをクライアントに知らせる。
@@ -122,6 +134,23 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, game_id: Uuid) {
         .is_err()
     {
         return;
+    }
+
+    // 対局画面を開き直した人は、相手が切断していることに気づけない
+    // (切断イベントは接続前に流れ終わっている)。connectedイベントを送った
+    // あと、送信/受信タスクを起動する前(socketがまだ分割されていない状態)で
+    // この接続にだけ送っておく。
+    match crate::abandon::opponent_grace_remaining(&state, game_id, user_id).await {
+        Ok(Some((opponent_id, remaining))) => {
+            let event = crate::state::GameEvent::PlayerDisconnected {
+                user_id: opponent_id,
+                remaining_seconds: remaining,
+            };
+            let json = serde_json::to_string(&event).unwrap_or_default();
+            let _ = socket.send(Message::Text(json)).await;
+        }
+        Ok(None) => {}
+        Err(e) => tracing::error!(error = ?e, "相手の切断状態の取得に失敗"),
     }
 
     let (mut ws_sender, mut ws_receiver) = socket.split();
@@ -149,6 +178,11 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, game_id: Uuid) {
     tokio::select! {
         _ = recv_task => {},
         _ = send_task => {},
+    }
+
+    // 切断を記録する
+    if let Err(e) = crate::abandon::mark_disconnected(&state, game_id, user_id).await {
+        tracing::error!(error = ?e, "切断の記録に失敗");
     }
 
     tracing::info!(%game_id, %user_id, "websocket disconnected");

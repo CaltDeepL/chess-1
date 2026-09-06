@@ -1,3 +1,4 @@
+pub mod abandon;
 mod auth;
 mod domain;
 mod errors;
@@ -46,6 +47,11 @@ fn openapi_router() -> (Router<AppState>, utoipa::openapi::OpenApi) {
         .routes(routes!(routes::game::join_game))
         .routes(routes!(routes::game::make_move))
         .routes(routes!(routes::game::resign_game))
+        .route("/auth/logout", axum::routing::post(crate::auth::logout))
+        .route(
+            "/games/:id/claim-abandonment",
+            axum::routing::post(crate::routes::game::claim_abandonment),
+        )
         .split_for_parts()
 }
 
@@ -61,6 +67,11 @@ pub fn build_router(state: AppState) -> Router {
     router
         // WebSocketは仕様の対象外(OpenAPIはHTTPのみ)なので通常のrouteで追加
         .route("/ws/games/:id", get(routes::ws::ws_handler))
+        // 運用用の内部APIなのでOpenAPIには載せない
+        .route(
+            "/internal/sweep",
+            axum::routing::post(crate::routes::internal::sweep),
+        )
         .route(
             "/openapi.json",
             get(move || async move { Json(api.clone()) }),

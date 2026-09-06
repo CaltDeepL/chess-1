@@ -9,6 +9,7 @@ use http_body_util::BodyExt;
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use tower::ServiceExt;
+use uuid::Uuid;
 
 use futures_util::{SinkExt, StreamExt};
 use std::net::SocketAddr;
@@ -30,7 +31,17 @@ pub fn test_state(pool: PgPool) -> AppState {
         db: pool,
         jwt_secret: std::sync::Arc::new("test-secret".to_string()),
         game_channels: Default::default(),
+        game_connections: Default::default(),
+        sweep_token: "test-sweep-token".to_string(),
     }
+}
+
+pub async fn user_id_of(state: &AppState, username: &str) -> Uuid {
+    sqlx::query_scalar("SELECT id FROM users WHERE username = $1")
+        .bind(username)
+        .fetch_one(&state.db)
+        .await
+        .unwrap()
 }
 
 async fn send(state: &AppState, req: Request<Body>) -> (StatusCode, Value) {
@@ -179,7 +190,7 @@ pub async fn register_user(state: &AppState, username: &str) -> String {
     let (status, body) = post_json(
         state,
         "/auth/register",
-        json!({ "username": username, "password": "password123" }),
+        json!({ "username": username, "password": "integration test secret" }),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "register failed: {body}");

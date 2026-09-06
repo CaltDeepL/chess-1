@@ -1,5 +1,6 @@
 import { apiClient } from "./client";
 import type {
+  ClaimAbandonmentResponse,
   GameCreatedResponse,
   GameDetailResponse,
   GameStateResponse,
@@ -36,4 +37,12 @@ export function getGames(token: string, status?: string) {
 
 export function getMoves(id: string, token: string) {
   return apiClient.get<MoveRow[]>(`/games/${id}/moves`, token);
+}
+
+export function claimAbandonment(gameId: string, token: string) {
+  return apiClient.post<ClaimAbandonmentResponse>(
+    `/games/${gameId}/claim-abandonment`,
+    {},
+    token
+  );
 }

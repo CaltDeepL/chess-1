@@ -18,6 +18,10 @@ const END_REASON_LABELS: Record<string, string> = {
   resignation: "投了",
   stalemate: "ステイルメイト",
   insufficient_material: "駒不足",
+  disconnection: "切断",
+  abandonment: "両者離席",
+  logout: "ログアウト",
+  cancelled: "取り消し",
 };
 
 function formatDate(iso: string): string {

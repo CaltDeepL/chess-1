@@ -3,7 +3,9 @@ use axum::{
     http::HeaderMap,
     Json,
 };
+use serde::Serialize;
 use shakmaty::{fen::Fen, uci::UciMove, CastlingMode, Chess, EnPassantMode, Position};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::auth::extract_user_id;
@@ -492,4 +494,63 @@ pub async fn get_moves(
     .await?;
 
     Ok(Json(moves))
+}
+
+/// 相手の切断による勝ちを確定させる
+///
+/// 残っているプレイヤーの画面でカウントダウンが0になったときに呼ぶ。
+///
+/// **これが無いと、残っている側は既に WebSocket に接続済みなので
+/// 誰も判定を起こさず、次の sweep（最大10分後）まで待たされる。**
+/// 接続時の判定と sweep の隙間を埋める経路。
+///
+/// 判定そのものは `finish_if_abandoned` に任せるので、猶予前に呼ばれても
+/// 何も起きない。クライアントの時計を信用する必要がない。
+#[utoipa::path(
+    post,
+    path = "/games/{id}/claim-abandonment",
+    tag = "games",
+    params(("id" = Uuid, Path, description = "対局ID")),
+    security(("bearer_auth" = [])),
+    responses(
+        (status = 200, description = "判定結果。finished が false なら猶予内", body = ClaimResponse),
+        (status = 401, description = "認証が必要",
+            body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 403, description = "対局の参加者ではない",
+            body = ProblemDetails, content_type = "application/problem+json"),
+    )
+)]
+pub async fn claim_abandonment(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ClaimResponse>, AppError> {
+    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+
+    // 参加者しか判定を起こせない。無関係な相手に連打されて
+    // DBへの問い合わせが増えるのを防ぐ
+    let is_participant: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM games \
+         WHERE id = $1 AND (white_user_id = $2 OR black_user_id = $2))",
+    )
+    .bind(id)
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await?;
+
+    if !is_participant {
+        return Err(AppError::Forbidden(
+            "この対局の参加者ではありません".to_string(),
+        ));
+    }
+
+    let finished = crate::abandon::finish_if_abandoned(&state, id).await?;
+
+    Ok(Json(ClaimResponse { finished }))
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ClaimResponse {
+    /// 対局を終了させたかどうか。false は「まだ猶予内」
+    pub finished: bool,
 }

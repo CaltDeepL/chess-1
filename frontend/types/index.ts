@@ -32,6 +32,18 @@ export interface AuthResponse {
   token: string;
 }
 
+// POST /auth/logout のレスポンス
+export interface LogoutResponse {
+  /** 終了させた対局の数 */
+  forfeited: number;
+}
+
+// POST /games/:id/claim-abandonment のレスポンス
+export interface ClaimAbandonmentResponse {
+  /** 対局を終了させたかどうか。false は「まだ猶予内」 */
+  finished: boolean;
+}
+
 export type GameStatus = "waiting" | "in_progress" | "finished";
 export type GameResult = "white_win" | "black_win" | "draw" | null;
 
@@ -83,7 +95,9 @@ export type GameEvent =
     { type: "connected" }
   | { type: "move"; fen: string; uci: string; is_check: boolean; is_game_over: boolean }
   | { type: "game_over"; result: GameResult; end_reason: string }
-  | { type: "opponent_joined"; user_id: string };
+  | { type: "opponent_joined"; user_id: string }
+  | { type: "player_disconnected"; user_id: string; remaining_seconds: number }
+  | { type: "player_reconnected"; user_id: string };
    
 
 export interface GameSummary {

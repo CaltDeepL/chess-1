@@ -4,8 +4,11 @@ use argon2::{
 };
 use axum::{extract::State, http::HeaderMap, Json};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use serde::Serialize;
+use utoipa::ToSchema;
 use uuid::Uuid;
 
+use crate::domain::password::{validate_password, validate_username};
 use crate::errors::{AppError, ProblemDetails};
 use crate::models::{AuthResponse, Claims, LoginRequest, RegisterRequest, UserRow};
 use crate::state::AppState;
@@ -20,7 +23,7 @@ use crate::state::AppState;
     request_body = RegisterRequest,
     responses(
         (status = 200, description = "登録成功。ユーザーIDとJWTトークンを返す", body = AuthResponse),
-        (status = 400, description = "ユーザー名が空、またはパスワードが8文字未満",
+        (status = 400, description = "ユーザー名またはパスワードが要件を満たしていない",
             body = ProblemDetails, content_type = "application/problem+json"),
         (status = 409, description = "そのユーザー名は既に使われている",
             body = ProblemDetails, content_type = "application/problem+json"),
@@ -30,11 +33,9 @@ pub async fn register(
     State(state): State<AppState>,
     Json(payload): Json<RegisterRequest>,
 ) -> Result<Json<AuthResponse>, AppError> {
-    if payload.username.trim().is_empty() || payload.password.len() < 8 {
-        return Err(AppError::BadRequest(
-            "ユーザー名は必須、パスワードは8文字以上にしてください".to_string(),
-        ));
-    }
+    validate_username(&payload.username).map_err(|e| AppError::BadRequest(e.detail()))?;
+    validate_password(&payload.password, &payload.username)
+        .map_err(|e| AppError::BadRequest(e.detail()))?;
 
     let salt = SaltString::generate(&mut rand::thread_rng());
     let password_hash = Argon2::default()
@@ -106,6 +107,41 @@ pub async fn login(
         user_id: user.id,
         token,
     }))
+}
+
+/// ログアウトする
+///
+/// JWT はサーバー側に状態を持たないため、トークンの無効化は行わない
+/// （フロントが保持をやめるだけ）。このエンドポイントの役割は、
+/// **進行中の対局を終わらせること**。
+#[utoipa::path(
+    post,
+    path = "/auth/logout",
+    tag = "auth",
+    security(("bearer_auth" = [])),
+    responses(
+        (status = 200, description = "ログアウト完了。終了させた対局数を返す", body = LogoutResponse),
+        (status = 401, description = "認証が必要",
+            body = ProblemDetails, content_type = "application/problem+json"),
+    )
+)]
+pub async fn logout(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<LogoutResponse>, AppError> {
+    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+
+    let forfeited = crate::abandon::forfeit_active_games(&state, user_id).await?;
+
+    tracing::info!(%user_id, forfeited, "user logged out");
+
+    Ok(Json(LogoutResponse { forfeited }))
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct LogoutResponse {
+    /// 終了させた対局の数
+    pub forfeited: usize,
 }
 
 /// 指定ユーザーIDに対するJWTを発行するヘルパー。有効期限は24時間。

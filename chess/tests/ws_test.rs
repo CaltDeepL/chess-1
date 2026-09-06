@@ -18,7 +18,8 @@ use sqlx::PgPool;
 /// ユーザー名は毎回ユニークにする(同じテスト内で複数回呼ぶケースがあり、
 /// 固定名だと2回目の登録が既存ユーザーと衝突して409になる)。
 async fn setup_game(state: &chess_server::state::AppState) -> (String, String, String) {
-    let suffix = uuid::Uuid::new_v4();
+    // ユーザー名は32文字までなので、UUID全体(36文字)ではなく先頭8文字だけ使う
+    let suffix = uuid::Uuid::new_v4().simple().to_string()[..8].to_string();
     let white = register_user(state, &format!("white-{suffix}")).await;
     let black = register_user(state, &format!("black-{suffix}")).await;
     let game_id = create_game(state, &white).await;

@@ -16,12 +16,16 @@ use utoipa::{
     paths(
         crate::routes::history::list_my_games,
         crate::routes::ranking::get_ranking,
+        crate::auth::logout,
+        crate::routes::game::claim_abandonment,
     ),
     components(schemas(
         crate::errors::ProblemDetails,
         crate::routes::history::GameHistoryItem,
         crate::routes::ranking::RankingEntry,
         crate::routes::ranking::RankingResponse,
+        crate::auth::LogoutResponse,
+        crate::routes::game::ClaimResponse,
     )),
     tags(
         (name = "auth", description = "ユーザー登録・ログイン"),

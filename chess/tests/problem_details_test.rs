@@ -42,9 +42,11 @@ async fn bad_request_returns_problem_details(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations")]
 async fn conflict_returns_problem_details(pool: PgPool) {
     let state = test_state(pool);
-    let creds = json!({ "username": "alice", "password": "password123" });
+    let creds = json!({ "username": "alice", "password": "password123456" });
 
-    post_json(&state, "/auth/register", creds.clone()).await;
+    let (status, body) = post_json(&state, "/auth/register", creds.clone()).await;
+    assert_eq!(status, StatusCode::OK, "事前の登録が失敗している: {body}");
+
     let (status, _, body) = post_json_raw(&state, "/auth/register", creds).await;
 
     assert_eq!(status, StatusCode::CONFLICT);

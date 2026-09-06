@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type { ReactNode } from "react";
 import type { User } from "../types";
 import { AuthContext } from "./auth-context";
+import { logoutRequest } from "../api/auth";
 
 const TOKEN_KEY = "chess_token";
 const USER_KEY = "chess_user";
@@ -36,10 +37,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(newUser);
   };
 
-  const logout = () => {
+  // 進行中の対局を終わらせる必要があるため、ローカルの状態を消すだけでは
+  // 足りない。ただし通信の失敗でログアウトできなくなるのは困るので、
+  // 失敗しても必ずローカルは消す。
+  const logout = useCallback(async () => {
+    if (token) {
+      try {
+        await logoutRequest(token);
+      } catch {
+        // 通信に失敗しても、ログアウト自体は完了させる。
+        // 対局は切断扱いになり、猶予のあと自動で終了する
+      }
+    }
     setToken(null);
     setUser(null);
-  };
+  }, [token]);
 
   return (
     <AuthContext.Provider

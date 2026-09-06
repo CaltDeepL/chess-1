@@ -4,7 +4,7 @@
 
 **Rust + WebSocket で実装した、オンライン対戦チェスアプリ。**
 
-対局の合法手判定・手番管理・終局判定をサーバー側の権威として持ち、指し手・投了・終局・対戦相手の参加を WebSocket でリアルタイムに配信します。
+対局の合法手判定・手番管理・終局判定をサーバー側の権威として持ち、指し手・投了・終局・対戦相手の参加・切断をリアルタイムに配信します。Elo レーティング、対局履歴と棋譜再生、ランキングを備えています。
 
 **デモ**: https://chess-frontend-0van.onrender.com
 **API ドキュメント**: https://test1-9t4t.onrender.com/docs
@@ -15,7 +15,7 @@ API は Swagger UI からブラウザ上で試せます。`POST /auth/register` 
 
 > 無料プランで稼働しているため、アクセスがない間はインスタンスが停止します。最初のリクエストは応答まで数十秒かかることがあります。
 
-> **ポートフォリオプロジェクトです。** 全28タスクを完了し、本番環境（Render + Neon）で稼働しています。CI が green のときだけデプロイが走る構成です。
+> **ポートフォリオプロジェクトです。** 全36タスクを完了し、本番環境（Render + Neon）で稼働しています。CI が green のときだけデプロイが走る構成です。
 
 ---
 
@@ -25,7 +25,7 @@ API は Swagger UI からブラウザ上で試せます。`POST /auth/register` 
 
 **どこまでをサーバーの権威とするか。** クライアント側で合法手を判定すればレスポンスは速くなりますが、改ざんされた指し手を防げません。逆にすべてサーバーに問い合わせると、駒を掴んだ瞬間の「動かせるマス」の表示すら往復が必要になります。**権威と表示を分離する**設計が要ります。
 
-**リアルタイム通信の状態をどう扱うか。** WebSocket は「繋がっている / 切れている」の二値ではありません。初回接続中・再接続中・切断・エラーを区別しないと、ユーザーには「なぜか操作できない」としか見えません。
+**リアルタイム通信の状態をどう扱うか。** WebSocket は「繋がっている / 切れている」の二値ではありません。初回接続中・再接続中・切断・エラーを区別しないと、ユーザーには「なぜか操作できない」としか見えません。切断したまま戻らない相手をどう扱うかも、通信の一時的な断絶と区別して設計する必要があります。
 
 **対局の状態をどこに置くか。** 進行中の局面を1手ごとに DB へ書き戻すと、対局中のレイテンシが DB に支配されます。一方で棋譜と対局結果は永続化しなければ意味がありません。**揮発してよいものと、してはいけないものの線引き**が必要です。
 
@@ -37,7 +37,7 @@ API は Swagger UI からブラウザ上で試せます。`POST /auth/register` 
 
 | 機能 | エンドポイント |
 |---|---|
-| 認証（JWT） | `POST /auth/register` `POST /auth/login` |
+| 認証（JWT） | `POST /auth/register` `POST /auth/login` `POST /auth/logout` |
 | ユーザー公開情報 | `GET /users/{id}` |
 | 対局の作成・一覧 | `POST /games` `GET /games` |
 | 対局詳細 | `GET /games/{id}` |
@@ -45,11 +45,16 @@ API は Swagger UI からブラウザ上で試せます。`POST /auth/register` 
 | 指し手（UCI 形式） | `POST /games/{id}/move` |
 | 投了 | `POST /games/{id}/resign` |
 | 棋譜（指し手履歴） | `GET /games/{id}/moves` |
+| 切断による勝ちの確定 | `POST /games/{id}/claim-abandonment` |
+| 対局履歴 | `GET /users/me/games` |
+| ランキング | `GET /users/ranking` |
 | リアルタイム対局通知 | `GET /ws/games/{id}` |
 | 疎通確認 | `GET /health` |
 | API 仕様 | `GET /openapi.json` `/docs` |
 
-フロントエンドは、ロビーのタイル表示と自動更新、合法手ハイライト、プロモーション（歩の昇格）、棋譜の SAN 表示、接続状態の LED インジケーター、勝敗オーバーレイ、スマホ対応を実装しています。
+このほか、運用用に `POST /internal/sweep`（共有シークレット認証、OpenAPI 非公開）があります。
+
+フロントエンドは、ロビーのタイル表示と自動更新、合法手ハイライト、プロモーション（歩の昇格）、棋譜の SAN 表示、接続状態の LED インジケーター、勝敗オーバーレイ、対局履歴と棋譜再生、ランキング表、切断カウントダウン、スマホ対応を実装しています。
 
 ---
 
@@ -61,44 +66,49 @@ API は Swagger UI からブラウザ上で試せます。`POST /auth/register` 
            ▼
         Rust + axum（Render, Docker）
         ├── routes/     HTTP・WS のエンドポイント
+        ├── domain/     I/O を持たない純粋なルール判定
         ├── auth.rs     JWT 発行・検証
-        ├── models.rs   リクエスト / レスポンス型・DB 行型
+        ├── rating.rs   Elo の適用
+        ├── abandon.rs  切断・離脱の判定と一括処理
+        ├── errors.rs   AppError → RFC 9457 Problem Details
         ├── state.rs    AppState（対局のメモリ状態・broadcast チャンネル）
         └── shakmaty    合法手・チェックメイト判定（権威）
            │
            ▼
         PostgreSQL（Neon）
         users / games / moves
+           ▲
+           │  POST /internal/sweep（10分間隔）
+        GitHub Actions
 ```
 
-進行中の局面は `Arc<RwLock<HashMap<Uuid, Chess>>>` でメモリに、確定した情報（ユーザー・対局結果・棋譜）は PostgreSQL に置いています。
+進行中の局面は `Arc<RwLock<HashMap<Uuid, Chess>>>` でメモリに、確定した情報（ユーザー・対局結果・棋譜・レーティング）は PostgreSQL に置いています。
 
 ### ディレクトリ構成
 
 ```
 chess-app/
+├── .github/workflows/        # ci.yml / deploy.yml / sweep.yml
 ├── chess/                    # バックエンド（Rust）
 │   ├── Dockerfile            # マルチステージビルド
 │   ├── compose.yaml          # Postgres + API
-│   ├── .env                  # sqlx CLI 用の DATABASE_URL（gitignore 対象）
 │   ├── migrations/           # sqlx マイグレーション
-│   ├── docs/                 # タスクごとの設計メモ（全24件）
+│   ├── docs/                 # タスクごとの設計メモ
 │   └── src/
-│       ├── main.rs           # 起動処理・ルータ組み立て
+│       ├── main.rs           # 起動処理・マイグレーション適用
+│       ├── lib.rs            # ルータ組み立て・OpenAPI 仕様
 │       ├── state.rs          # AppState / GameEvent
-│       ├── models.rs         # 各種 DTO・DB 行型
-│       ├── auth.rs           # register / login / JWT
-│       └── routes/
-│           ├── health.rs
-│           ├── game.rs       # 対局関連ハンドラ
-│           ├── user.rs       # ユーザー公開情報
-│           └── ws.rs         # WebSocket ハンドラ
-└── src/                      # フロントエンド（Vite + React + TypeScript）
+│       ├── errors.rs         # AppError / ProblemDetails
+│       ├── rating.rs         # Elo の適用（トランザクション）
+│       ├── abandon.rs        # 切断・離脱の判定と sweep
+│       ├── domain/           # 純粋関数（outcome / player / history / elo / password / abandon）
+│       └── routes/           # health / game / user / history / ranking / ws / internal
+└── frontend/                 # Vite + React + TypeScript
     ├── api/                  # fetch ラッパ / エラー正規化
     ├── context/              # AuthContext / ToastContext
     ├── hooks/                # useGameSocket（接続管理・再接続）
-    ├── pages/                # Home / Login / Register / Lobby / Game
-    ├── components/           # ChessBoard / GameList / MoveHistory / 他
+    ├── pages/                # Home / Login / Register / Lobby / Game / History / Review / Ranking
+    ├── components/           # ChessBoard / GameList / MoveHistory / DisconnectCountdown / 他
     └── styles/               # global.css / glass-board.css
 ```
 
@@ -119,17 +129,29 @@ chess-app/
 | 値 | 意味 |
 |---|---|
 | `white_win` / `black_win` | 勝敗が決した |
-| `draw` | ステイルメイト・駒不足など |
+| `draw` | ステイルメイト・駒不足・両者離席 |
 
-終了理由は `end_reason TEXT`（`checkmate` / `stalemate` / `insufficient_material` / `resignation`）に別途保持します。
+終了理由は `end_reason TEXT` に別途保持します。
+
+| 値 | 意味 |
+|---|---|
+| `checkmate` / `stalemate` / `insufficient_material` | 盤上で決着 |
+| `resignation` | 投了 |
+| `disconnection` | 一方が切断したまま猶予（60秒）を過ぎた |
+| `abandonment` | 両者が離席したまま猶予を過ぎた（引き分け） |
+| `logout` | 対局中に明示的にログアウトした |
+| `cancelled` | 相手が参加しないまま作成者が離脱した（結果なし） |
 
 ### WebSocket イベント
 
 | イベント | 配信タイミング |
 |---|---|
+| `Connected` | 購読の開始が完了したとき（接続した本人にのみ） |
 | `Move` | 指し手ごと（FEN・チェック状態・終局判定） |
-| `GameOver` | 終局時（チェックメイト経由・投了経由の両方） |
+| `GameOver` | 終局時（チェックメイト・投了・切断・ログアウト） |
 | `OpponentJoined` | 対戦相手が参加したとき |
+| `PlayerDisconnected` | 一方の接続が0本になったとき（残り秒数つき） |
+| `PlayerReconnected` | 切断していた側が戻ったとき |
 
 ---
 
@@ -143,97 +165,117 @@ chess-app/
 
 当初は `GET /games/{id}/legal_moves` を追加してサーバーの判定結果をそのまま表示に使う案で実装しましたが、削除しました。手番が回るたびに API を1往復するのはレイテンシとして無駄であり、何より「サーバー権威・フロントは表示のみ」という方針に対して中途半端な二重化になります。
 
-判定ロジックが2箇所に存在するのは一般には避けたい形ですが、**役割が非対称**であれば問題になりません。フロントの誤判定は「ハイライトが出ない / 余分に出る」だけで、不正な手は必ずサーバーが弾きます。ライブラリが別（shakmaty / chess.js）でも、正しさの保証はサーバー側に一本化されています。
+判定ロジックが2箇所に存在するのは一般には避けたい形ですが、**役割が非対称**であれば問題になりません。フロントの誤判定は「ハイライトが出ない / 余分に出る」だけで、不正な手は必ずサーバーが弾きます。
 
 ### なぜ WebSocket 認証をクエリパラメータではなく最初のメッセージで行うのか
 
 ブラウザの WebSocket API は任意のヘッダーを送れないため、`Authorization: Bearer` が使えません。残る選択肢はクエリパラメータ（`?token=...`）か、接続確立後の最初のメッセージです。
 
-クエリパラメータ方式は実装が単純ですが、**トークンが URL に乗るためアクセスログやリバースプロキシのログに残ります**。接続後のメッセージで送る方式を採り、サーバー側は最初の1通を認証メッセージとして扱い、検証に失敗すれば接続を閉じます。
+クエリパラメータ方式は実装が単純ですが、**トークンが URL に乗るためアクセスログやリバースプロキシのログに残ります**。接続後のメッセージで送る方式を採り、サーバー側は最初の1通を認証メッセージとして扱い、検証に失敗すれば接続を閉じます。認証メッセージ待ちには10秒のタイムアウトを設け、接続だけしてタスクを保持し続けるクライアントを防いでいます。
 
-```json
-{"token": "..."}
-```
+### なぜ「接続完了」を独自イベントで通知するのか
 
-`AuthMessage { token: String }` には serde の rename 属性を付けていません。フィールド名がそのまま JSON キーになるため、フロントの型定義と突き合わせる際に変換規則が挟まりません。
+WebSocket の `onopen` は TCP と upgrade の完了しか意味しません。このアプリの認証は upgrade 後の最初のメッセージで行うため、**認証に失敗する接続でも `onopen` は発火します**。接続 LED をこれに紐づけると、失敗する接続でも一瞬「接続済み」と表示されていました。
+
+サーバーが購読を開始した直後に `{"type":"connected"}` を送り、フロントはこれを受けて初めて `open` にします。統合テストからも「購読が始まった」ことを直接観測できるようになり、時間待ちに頼らずに済むようになりました。
 
 ### なぜ進行中の対局をメモリに置き、DB を正本にしないのか
 
 1手ごとに局面を DB へ書き戻すと、対局中のレスポンスが DB のラウンドトリップに支配されます。チェスの局面は数百バイトで、同時進行数もこの規模のアプリでは限られるため、メモリ保持が現実的です。
 
-ただし**棋譜（`moves`）と対局結果（`games`）は必ず永続化**します。ここが分岐点で、「揮発してよいのは再現可能な派生データだけ」という基準を置いています。局面（FEN）は棋譜から再生できますが、棋譜そのものは失われたら復元できません。
+ただし**棋譜（`moves`）と対局結果（`games`）は必ず永続化**します。「揮発してよいのは再現可能な派生データだけ」という基準です。局面（FEN）は棋譜から再生できますが、棋譜そのものは失われたら復元できません。
 
-投了時はメモリ上のマップから対局を削除します。以降その対局への `move` は「メモリに存在しない」ため自然に 404 になり、終了フラグを見て弾く分岐を書かずに済みます。
+終局時はメモリ上のマップから対局を削除します。ただし参照系（`GET /games/{id}`）はメモリに無ければ DB の `fen` から局面を復元します。削除だけしてこの経路を用意していなかったため、**終了した対局の詳細が 404 になる**不具合がありました（`docs/task-33`）。
+
+### なぜエラーレスポンスを RFC 9457（Problem Details）にしたのか
+
+独自の `{"message": "..."}` でも動作はしますが、標準に乗ると **`Content-Type: application/problem+json` を見るだけでクライアントが「構造化されたエラーだ」と判断できます**。将来 CLI や他サービスが繋がっても、解釈方法を個別に伝える必要がありません。
+
+```json
+{
+  "type": "/problems/forbidden",
+  "title": "Forbidden",
+  "status": 403,
+  "detail": "あなたの手番ではありません"
+}
+```
+
+この移行の副産物として、**500 の応答に内部のエラー文（DB のエラーメッセージ）がそのまま含まれていた**問題も塞がりました。`Internal` だけは固定文言に差し替え、原因はログにのみ残しています。
+
+### なぜ Elo の変動を片側だけ計算するのか
+
+白黒それぞれ独立に計算して丸めると、`round()` の結果次第で合計が ±1 ずれ、**系全体のレーティング総和が保存されなくなります**。白の変動値を計算し、黒はその符号を反転させることでゼロサムを構造的に保証しています。
+
+変動値は `games` に保存します。保存しないと履歴画面で「この対局で何点動いたか」を出せず、**後から再計算することもできません**（当時の相手のレーティングが失われるため）。
+
+終局の経路は投了・チェックメイト・切断・ログアウトと複数あるため、レーティングの適用は共通の関数を全経路から呼びます。経路ごとに書くと、片方だけ漏れても気づけません。
+
+### なぜ切断の判定を外部の定期実行に任せるのか
+
+対戦相手が切断したまま戻らない場合、猶予60秒を過ぎたら残ったプレイヤーの勝ちにします。問題は「誰が60秒を計るか」です。
+
+Render の無料枠はリクエストが無いとスピンダウンするため、アプリ内で `tokio::spawn` したタイマーは**プロセスごと消えます**。GitHub Actions から `POST /internal/sweep` を10分間隔で叩く構成にしました。
+
+ただし10分は決着として遅すぎます。そこで判定の契機を3つ用意しています。
+
+| 契機 | 役割 |
+|---|---|
+| WebSocket 接続時 | 残っている側が画面を開いた瞬間に決着 |
+| カウントダウンが0になったとき | 画面を開いたままの側が `claim-abandonment` を呼ぶ |
+| 定期実行（10分間隔） | 誰も見ていない対局の後始末 |
+
+判定そのものは常にサーバーが行うため、クライアントが時計を進めても猶予前に勝ちにはなりません。
+
+### なぜ advisory lock をプールではなく専用の接続で取るのか
+
+`&PgPool` を Executor に渡すと、呼び出しごとに**接続を借りて即座に返します**。advisory lock はセッションに紐づくため、ロックを取った接続と解放する接続が別になりえます。
+
+その場合ロックを持ったままの接続がプールに残り、以後 sweep は永久に「実行中」と判定されます。**競合時は成功を返す設計なので、定期実行からは正常に見えたまま掃除が二度と走らない**という状態になります。
+
+`acquire()` で1本を確保して保持し、取得と解放を同じ接続で行います。このバグは単一スレッドのテストでは再現しないため、回帰テストを追加したうえで旧実装に戻し、確実に失敗することを確認しました（`docs/task-36`）。
+
+### なぜパスワードに文字種を強制しないのか
+
+NIST SP 800-63B の方針に沿い、長さ（12文字以上）を主な担保としています。文字種を強制すると `Password1!` のような、**覚えにくいわりに破られやすい**パスワードに誘導してしまいます。長いパスフレーズを許可するほうが合理的です。
+
+長さは**文字数**で数えます。`str::len()` はバイト数を返すため、日本語のパスフレーズが不当に長く評価されていました（「正しい馬の電池」は7文字だが21バイト）。上限（128文字）も設けています。上限が無いと、巨大な入力で Argon2 のハッシュ化がそのまま DoS の入口になります。
+
+ログイン側では検証しません。要件の引き上げを適用すると**既存ユーザーが締め出される**うえ、「短すぎます」と返すことで保存されている値と一致するかに関わらず要件を満たさないことが分かってしまいます。
 
 ### なぜ `useGameSocket` にゲームロジックを持たせないのか
 
 このフックは**接続管理と生イベントの中継に専念**し、盤面 state（FEN / 手番 / 結果）の更新は `GamePage` 側で行います。
 
-フック内で FEN 管理まで行う案（呼び出し側は `const { fen, turn } = useGameSocket()` で済む）も検討しましたが、採用しませんでした。その場合フックが「接続管理」と「ゲーム状態管理」の2責務を持ち、`GameEvent` の種類が増えるたびに内部の分岐を触ることになります。
-
-現在の分離なら、`OpponentJoined` イベントを追加したときもフック側は無変更で済みました。再利用（観戦画面など）が必要になった時点で `useChessGame` として切り出す、2段階のリファクタ方針を取っています。
+フック内で FEN 管理まで行う案も検討しましたが、フックが「接続管理」と「ゲーム状態管理」の2責務を持ち、`GameEvent` の種類が増えるたびに内部の分岐を触ることになります。現在の分離なら、`OpponentJoined` や `PlayerDisconnected` を追加したときもフック側は無変更で済みました。
 
 ### なぜ接続状態を5値で持つのか
 
-`connecting` / `reconnecting` / `open` / `closed` / `error` の5つを区別しています。
+`connecting` / `reconnecting` / `open` / `closed` / `error` の5つを区別しています。当初は初回接続と再接続を区別していませんでしたが、「接続が切れました。再接続しています」と出したいケースで破綻しました。**状態を表す列挙は「実装が区別できるか」ではなく「UI が区別して見せたいか」で設計する**という判断です。
 
-当初は `connecting` のみで初回接続と再接続を区別していませんでしたが、UI 側で「接続が切れました。再接続しています」と出したいケースで破綻しました。**状態を表す列挙は「実装が区別できるか」ではなく「UI が区別して見せたいか」で設計する**という判断です。
-
-再接続は指数バックオフ（1秒 → 2秒 → 4秒 …最大30秒）で行い、アンマウント時のクリーンアップと意図しない再接続をフラグで区別しています。
+再接続は指数バックオフ（1秒 → 2秒 → 4秒 …最大30秒）で行っています。
 
 ### なぜ 401 を CustomEvent でアプリ全体に通知するのか
 
-トークン期限切れの検知を各 API 呼び出し箇所に書くと、新しいエンドポイントを追加するたびに書き漏れが発生します。
-
-`client.ts` の1箇所で 401 を検知し `CustomEvent` を発火、`App.tsx` の `SessionExpiredListener` が受け取って自動ログアウト・トースト表示・ログイン画面への遷移を行う構成にしました。**検知を一元化しておけば、API を追加しても自動的に効きます。**
-
-ログイン / 登録フォーム自体の 401 は対象外です（トークンを送っていないため、通常の「パスワードが違います」表示のままにする）。
-
-### なぜ対戦相手の参加を WebSocket イベントにしたのか
-
-対局作成者が相手を待っている間、参加を検知する手段としてポーリングと WebSocket イベントの2案がありました。
-
-ポーリングはバックエンド変更が不要という利点がありますが、検知まで数秒のラグが出ます。「今、相手が来ました」という即時性のある通知としては弱く、加えて対局画面に WebSocket とポーリングの二重の仕組みが並存することになります。
-
-すでに `broadcast` チャンネルと `GameEvent` の仕組みが整っていたため、`OpponentJoined` バリアントを追加するほうが既存設計との一貫性が高く、後で技術的負債になりにくいと判断しました。
-
-### なぜ対戦相手名を対局レスポンスに含めず、別エンドポイントにしたのか
-
-`GameDetailResponse` に `white_username` / `black_username` を足す案のほうが実装は簡単で、API の往復も減ります。
-
-それでも `GET /users/{id}` を新設したのは、汎用エンドポイントにしておけば将来のプロフィール表示や対局履歴一覧にも再利用できるためです。対局情報とユーザー情報の責務も分離され、「観戦者にも見せるか」といった権限設計が必要になったときに、ルールを別々に定義できます。
-
-公開情報（id / username）のみを返し、内部で使う情報は含めていません。
+トークン期限切れの検知を各 API 呼び出し箇所に書くと、新しいエンドポイントを追加するたびに書き漏れが発生します。`client.ts` の1箇所で 401 を検知し `CustomEvent` を発火、`App.tsx` の `SessionExpiredListener` が受け取って自動ログアウトと遷移を行います。**検知を一元化しておけば、API を追加しても自動的に効きます。**
 
 ### なぜレースコンディションをアプリのロックではなく SQL で防ぐのか
 
-対局への参加（`join`）と投了（`resign`）は、同時リクエストで不整合が起きうる箇所です。
-
-`SELECT` してから `UPDATE` する二段構えだと、その間に別リクエストが割り込みます。条件付き `UPDATE` の**更新行数**で判定する形にすれば、DB のトランザクションが一貫性を保証してくれます。
+`SELECT` してから `UPDATE` する二段構えだと、その間に別リクエストが割り込みます。条件付き `UPDATE` の**更新行数**で判定すれば、DB のトランザクションが一貫性を保証します。
 
 ```sql
 UPDATE games SET black_user_id = $1, status = 'in_progress'
 WHERE id = $2 AND black_user_id IS NULL
 ```
 
-更新行数が 0 なら「既に誰かが参加済み」として 409 を返します。アプリ側でロックを持つより、DB に判断を委ねるほうが確実です。
+更新行数が 0 なら「既に誰かが参加済み」として 409 を返します。同じ考え方を終局処理にも使っており、WebSocket 接続時の判定と定期実行が同時に走っても、実際に対局を終了させるのは1つだけになります。
 
 ### なぜ OpenAPI とルート定義を同じ場所に置くのか
 
-`utoipa-axum` の `OpenApiRouter` を使い、ルート登録とドキュメント生成をまとめています。
+`utoipa-axum` の `OpenApiRouter` でルート登録とドキュメント生成をまとめています。`routes!()` に渡したハンドラがそのまま axum のルートになり、同時に `#[utoipa::path]` の情報から仕様が組み立てられます。
 
-```rust
-let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
-    .routes(routes!(routes::game::list_games, routes::game::create_game))
-    .routes(routes!(routes::game::join_game))
-    .split_for_parts();
-```
+配信される仕様とテストが検証する仕様は同じ組み立てから生成しています。テスト用に組み直すと「テストは緑だが実際に配信される仕様は別物」という状態がありえるためです。統合テストではパス数の一致、認証必須エンドポイントの `security` 宣言、**全 4xx/5xx が `ProblemDetails` を参照していること**を検証しています。
 
-`routes!()` に渡したハンドラがそのまま axum のルートになり、同時に `#[utoipa::path]` の情報から仕様が組み立てられます。ルートを追加したのにドキュメントを書き忘れる、パスを変更したのに仕様が古いまま、といった乖離が構造的に起きません。
-
-統合テストでもパス数の完全一致と、認証必須エンドポイントの `security` 宣言を検証しており、`#[utoipa::path]` の付与漏れがあるとテストが落ちます。
-
-なお Swagger UI 本体は `utoipa-swagger-ui` を使わず、CDN から読み込む 20 行程度の静的 HTML にしています。`utoipa-swagger-ui` はビルド時に UI の zip をダウンロードするため、CI とデプロイのたびにその時間がかかるためです。
+なお Swagger UI 本体は `utoipa-swagger-ui` を使わず、CDN から読み込む 20 行程度の静的 HTML にしています。ビルド時に UI の zip をダウンロードする時間が CI とデプロイのたびにかかるためです。
 
 ---
 
@@ -250,7 +292,7 @@ let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
 | 盤面 UI | react-chessboard v5（カスタム駒セット） |
 | コンテナ | Docker（マルチステージビルド） |
 | ホスティング | Render（Docker / Static Site）/ Neon（Postgres） |
-| API ドキュメント | utoipa / utoipa-axum（OpenAPI 3.1） |
+| API ドキュメント | utoipa / utoipa-axum（OpenAPI 3.1、RFC 9457） |
 | CI / CD | GitHub Actions |
 
 ---
@@ -266,9 +308,13 @@ let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
 | SELECT（デコード） | `SELECT status::text FROM games` |
 | バインド（エンコード） | `SET result = $1::game_result` |
 
-バインド側のキャスト漏れは特に厄介でした。`make_move` のチェックメイト時 UPDATE でこれが漏れており、しかもエラーが `tracing::error!` でログ出力されるだけで HTTP レスポンスに伝播しない実装だったため、**API が 200 を返しているのに DB が更新されていない**というサイレント障害になっていました。
+バインド側のキャスト漏れは特に厄介でした。`make_move` のチェックメイト時 UPDATE でこれが漏れており、しかもエラーが `tracing::error!` でログ出力されるだけで HTTP レスポンスに伝播しない実装だったため、**API が 200 を返しているのに DB が更新されていない**というサイレント障害になっていました（`docs/task-07`）。
 
-エラーを握りつぶす箇所は、意図的にそうしているのか伝播させ忘れているのかを区別する、という教訓として `docs/task-07` に記録しています。
+### マイグレーションの適用を起動時に行う
+
+sqlx CLI での手動適用に頼っていたところ、ローカル DB への適用漏れで `column does not exist` が発生しました。**`#[sqlx::test]` は毎回専用 DB に全マイグレーションを当てるため、テストは緑のままローカル環境だけが壊れます。**
+
+起動時に `sqlx::migrate!()` を実行する形にし、ローカル・本番とも適用漏れが構造的に起きないようにしました。本番へのマイグレーション適用が手動だった問題も同時に解消しています。
 
 ### コンテナクエリ単位（cqw）と React Portal
 
@@ -276,34 +322,35 @@ let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
 
 `node_modules/react-chessboard` のソースを読んだところ、ドラッグ中の駒は `@dnd-kit` の `DragOverlay` 経由で `document.body` 直下に portal されていました。React のツリー上は盤面の子でも、**DOM ツリー上はコンテナの外に出ている**ため、cqw の基準を見失っていたわけです。
 
-盤面のマスと、portal される駒本体の両方に `container-type: inline-size` を設定して解決しました。検証は DOM に `pointerdown` / `pointermove` を直接発火させて `DragOverlay` の複製要素を生成し、`getComputedStyle` で font-size を実測しています（通常駒 ~51.78px に対しドラッグ中 51.765px）。
+盤面のマスと、portal される駒本体の両方に `container-type: inline-size` を設定して解決しました。
 
 ### ドメインロジックの分離
 
-手番判定・終局判定・勝者決定は `domain/` に I/O を持たない純粋関数として切り出しています。
+I/O を持たない純粋関数を `domain/` に切り出しています。引数を渡すだけで結果が決まるため、対局を実際に進めなくても、また DB を用意しなくても検証できます。
 
 ```rust
 pub fn determine_outcome(position: &Chess) -> (&'static str, &'static str);
 pub fn winner_after_resign(resigning: Color) -> &'static str;
 pub fn role_of(user_id: Uuid, white: Uuid, black: Option<Uuid>) -> Role;
-pub fn expected_player(turn: Color, white: Uuid, black: Option<Uuid>) -> Option<Uuid>;
+pub fn outcome_for(result: Option<&str>, my_color: Color) -> Option<Outcome>;
+pub fn white_delta(white_rating: i32, black_rating: i32, score: f64) -> i32;
+pub fn validate_password(password: &str, username: &str) -> Result<(), PasswordError>;
+pub fn decide(white_at: Option<DateTime<Utc>>, black_at: Option<DateTime<Utc>>, now: DateTime<Utc>) -> Option<Abandonment>;
 ```
 
-引数を渡すだけで結果が決まるため、対局を実際に進めなくても、また DB を用意しなくても検証できます。詰み・ステイルメイト・駒不足の各判定を局面から直接テストしており、ハンドラ側は入出力と DB 更新に専念する形になっています。
+切断判定は時刻を引数で受け取るため、**60秒待たずに境界の挙動をテストできます**。
 
-### エラーレスポンスの正規化
+### エラーレスポンスの正規化（フロント側）
 
-`fetch` 自体が失敗する場合（サーバー未起動・ネットワーク切断・CORS）、素の `TypeError` が投げられて呼び出し側の `status` 判定が壊れます。これを `ApiError { status: 0 }` に正規化し、「サーバーに接続できません」と表示するようにしました。
+`fetch` 自体が失敗する場合（サーバー未起動・ネットワーク切断・CORS）、素の `TypeError` が投げられて呼び出し側の `status` 判定が壊れます。これを `ApiError { status: 0 }` に正規化しています。
 
-加えて、JSON のエラーボディが返らない場合（プロキシ越しの異常応答など）に備え、主要な HTTP ステータス（400 / 401 / 403 / 404 / 409 / 429 / 500 / 502 / 503）の日本語フォールバックメッセージを持たせています。
+サーバーは RFC 9457 の `detail` を返しますが、プロキシ越しの異常応答など JSON が返らない場合に備え、主要な HTTP ステータスの日本語フォールバックメッセージを持たせています。
 
 `ErrorBoundary` は `App.tsx` の**最外層**、プロバイダ層よりさらに外側に配置しています。内側に置くと `AuthProvider` / `ToastProvider` 自身の例外を捕まえられません。
 
 ### CORS
 
-フロントエンド（Render Static Site）と API（Web Service）を別オリジンで運用するため、`tower-http` の `CorsLayer` を適用しています。
-
-許可オリジンは `FRONTEND_ORIGIN` 環境変数から**カンマ区切りで複数指定**でき、ローカル開発用の `localhost` と本番ドメインを同時に許可できます。未設定時はローカル開発用ポートにフォールバックします。
+フロントエンド（Render Static Site）と API（Web Service）を別オリジンで運用するため、`tower-http` の `CorsLayer` を適用しています。許可オリジンは `FRONTEND_ORIGIN` 環境変数から**カンマ区切りで複数指定**でき、ローカル開発用の `localhost` と本番ドメインを同時に許可できます。
 
 ---
 
@@ -314,7 +361,7 @@ pub fn expected_player(turn: Color, white: Uuid, black: Option<Uuid>) -> Option<
 - Docker / Docker Compose
 - Node.js
 - Rust 1.90 以降（ローカルでビルドする場合）
-- sqlx-cli（マイグレーションを実行する場合）
+- sqlx-cli（マイグレーションを手動実行する場合。通常は起動時に自動適用されます）
 
 ```bash
 cargo install sqlx-cli --no-default-features --features rustls,postgres
@@ -330,7 +377,7 @@ cd chess-1/chess
 cp .env.example .env
 ```
 
-`.env` の `JWT_SECRET` は必ず変更してください。
+`.env` の `JWT_SECRET` と `SWEEP_TOKEN` は必ず変更してください。
 
 ```bash
 openssl rand -hex 32
@@ -341,15 +388,15 @@ docker compose up --build -d
 curl http://localhost:3000/health
 ```
 
-### マイグレーション
-
-sqlx CLI はホスト側で実行します。接続先は `chess/.env` の `DATABASE_URL` から読まれます。
+マイグレーションは起動時に自動で適用されます。手動で流す場合は sqlx CLI をホスト側で実行します。
 
 ```bash
 cd chess
+sqlx migrate info
 sqlx migrate run
-docker compose exec db psql -U chess -d chess_db -c '\dt'
 ```
+
+> **マイグレーションのファイル名はタイムスタンプ形式で統一してください。** sqlx はファイル名先頭の数値をそのままバージョンとして扱うため、連番形式（`0001_`）を混ぜると既存の `20260805202110_init.sql` より小さい値と解釈され、テーブル作成より先に適用されようとして失敗します（`docs/task-32`）。
 
 > **接続先ポートに注意**
 >
@@ -365,9 +412,9 @@ docker compose exec db psql -U chess -d chess_db -c '\dt'
 ### フロントエンド
 
 ```bash
-cd ..            # リポジトリルート
+cd ../frontend
 npm install
-npm run dev      # http://localhost:5174
+npm run dev
 ```
 
 本番ビルド時の接続先は `.env.production` の `VITE_API_URL` から読まれます。
@@ -384,42 +431,35 @@ cargo test
 
 統合テストは `#[sqlx::test(migrations = "./migrations")]` により、**テストごとに独立した一時 DB** を作成してマイグレーションを適用します。テスト間の状態共有がないため、複数のテストが同じユーザー名を使っても干渉せず、並列実行しても順序に依存した失敗が起きません。
 
-`tower::ServiceExt::oneshot` でルータへ直接リクエストを投げる方式を採り、HTTP サーバを起動せずにルーティングからハンドラ・リポジトリ・DB までを通しで検証しています。ポートの取り合いや起動待ちがない分、実行が速く安定します。
+REST は `tower::ServiceExt::oneshot` でルータへ直接リクエストを投げ、HTTP サーバを起動せずにルーティングからハンドラ・DB までを通しで検証しています。WebSocket は `101 Switching Protocols` を伴うため oneshot では扱えず、こちらだけ空きポートで実サーバーを起動します。**同じ `AppState` を共有しているため、oneshot で作った対局が実サーバーの WS ハンドラからも見えます。**
 
-現在 **47 件**のテスト（ユニット 17 / 統合 30）が以下をカバーしています。
+現在 **150 件**のテスト（ユニット 54 / 統合 96）が以下をカバーしています。
 
 | ファイル | 件数 | 内容 |
 |---|---|---|
-| `auth_test.rs` | 6 | 登録・ログイン・ユーザー列挙攻撃対策 |
-| `game_test.rs` | 9 | 対局参加、指し手の記録、権限・手番・合法性のチェック |
+| `auth_test.rs` | 13 | 登録・ログイン・ユーザー列挙攻撃対策・パスワード要件 |
+| `game_test.rs` | 12 | 対局参加、指し手の記録、権限・手番・合法性、終了済み対局の取得 |
 | `resign_test.rs` | 5 | 投了の結果反映、再投了、投了後の指し手拒否 |
 | `checkmate_test.rs` | 5 | Fool's mate / Scholar's mate による終局判定 |
-| `openapi_test.rs` | 5 | 仕様の配信、パス数の一致、セキュリティスキームの宣言 |
+| `ws_test.rs` | 7 | イベント配信・順序・認証・参加者チェック・対局間の隔離 |
+| `abandon_test.rs` | 21 | 切断猶予・両者離席・ログアウト即敗北・sweep・ロック解放 |
+| `rating_test.rs` | 7 | 経路別の適用、ゼロサム、二重適用の防止 |
+| `ranking_test.rs` | 8 | 順位付け、同着、認証任意、自分の順位 |
+| `history_test.rs` | 9 | 自分視点の勝敗、絞り込み、ページング |
+| `problem_details_test.rs` | 3 | Content-Type・`type`・`status` の検証 |
+| `openapi_test.rs` | 6 | 仕様の配信、パス数の一致、`ProblemDetails` の参照 |
 
-これに加え、`domain` 層（手番判定・終局判定・勝者決定）のユニットテストが 17 件あります。I/O を持たない純粋関数なので DB なしで実行でき、一瞬で終わります。
+これに加え、`domain` 層（手番・終局・勝者・履歴・Elo・パスワード・切断判定）のユニットテストが 54 件あります。I/O を持たない純粋関数なので DB なしで実行でき、一瞬で終わります。
 
-**結果が確定する経路では、API のステータスコードだけでなく `games` テーブルの中身まで assert しています。** 過去に「API は 200 を返すのに DB が更新されていない」というサイレント障害（ENUM キャスト漏れ + エラーがログにしか出ない実装）を見逃した経験があるためです（`docs/task-07`）。同じ問題が再発すれば即座にテストが落ちます。
+**結果が確定する経路では、API のステータスコードだけでなく `games` テーブルの中身まで assert しています。** 過去に「API は 200 を返すのに DB が更新されていない」というサイレント障害を見逃した経験があるためです（`docs/task-07`）。
 
-API の手動確認は curl で行えます。
+### テスト自体が壊れていた例
 
-```bash
-curl -X POST http://localhost:3000/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"username":"alice","password":"password123"}'
+テストが緑であることは、テストが意図どおり検証していることを意味しません。実際に見つかった例:
 
-curl -X POST http://localhost:3000/games -H "Authorization: Bearer <token>"
-
-curl -X POST http://localhost:3000/games/<id>/move \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" -d '{"uci":"e2e4"}'
-```
-
-WebSocket は Python + `websockets` の簡易クライアントで、接続 → 認証メッセージ送信 → イベント受信を検証しました。
-
-```bash
-python3 -m venv wsenv && wsenv/bin/pip install websockets
-GAME_ID=<game_id> TOKEN=<token> wsenv/bin/python ws_listen.py
-```
+- **`assert_no_event` がタイムアウトのみで判定していた**（`docs/task-30`）。サーバーが Close ハンドシェイクを送らず切断する経路では、Close フレームが即座に届くためタイムアウトせず、「イベントが届いた」と誤判定していた
+- **セットアップの失敗を assert していなかった**（`docs/task-35`）。パスワード要件の引き上げで事前登録が 400 になり対象ユーザーが存在しなくなったが、未知ユーザーへのログインとして同じ 401 が返るため**緑のまま意味を失っていた**
+- **`pg_locks` を DB で絞り込んでいなかった**（`docs/task-36`）。並列実行中の他テストのロックを誤検知していた
 
 ---
 
@@ -443,30 +483,19 @@ Render Deploy Hook（backend / frontend）
 |---|---|---|
 | CI | push（main）/ pull_request / 手動 | fmt・clippy・テスト（Postgres サービス付き）・フロントの型チェックとビルド |
 | Deploy | CI の成功（main のみ） | Render の Deploy Hook を起動 |
+| Sweep | 10分間隔 / 手動 | `POST /internal/sweep` を叩き、放置された対局を終了させる |
 
-**Render の auto-deploy は無効にしています。** auto-deploy は `main` への push を検知して即座にビルドを始めるため、テストの結果を待ちません。`workflow_run` イベントで CI の完了と結果を受け取り、成功時に限って Deploy Hook を叩く構成にすることで、CI が green のときだけデプロイが走ることを保証しています。
-
-CI では Postgres をサービスコンテナとして起動し、`DATABASE_URL` を渡しています。`sqlx::query!` マクロを使っていないため、`.sqlx` オフラインキャッシュや `cargo sqlx prepare` は不要です。
+**Render の auto-deploy は無効にしています。** auto-deploy は `main` への push を検知して即座にビルドを始めるため、テストの結果を待ちません。`workflow_run` イベントで CI の完了と結果を受け取り、成功時に限って Deploy Hook を叩く構成にしています。
 
 ## Deployment
-
-```
-git push（main）
- ↓
-CI（GitHub Actions）
- ↓
-CI green のときのみ Deploy Hook
- ├─ バックエンド: Docker Web Service（Root Directory: chess）
- └─ フロントエンド: Static Site（npm run build → dist）
- ↓
-Neon PostgreSQL
-```
 
 | 環境変数 | 設定先 | 内容 |
 |---|---|---|
 | `DATABASE_URL` | バックエンド | Neon の接続文字列 |
 | `JWT_SECRET` | バックエンド | `openssl rand -hex 32` の出力 |
+| `SWEEP_TOKEN` | バックエンド / GitHub Secrets | 同じ値を両方に設定 |
 | `FRONTEND_ORIGIN` | バックエンド | 許可オリジン（カンマ区切り） |
+| `APP_URL` | GitHub Secrets | sweep の宛先 |
 | `VITE_API_URL` | フロントエンド | `.env.production` にコミット（ビルド時に埋め込まれる） |
 
 > `PORT` は **設定してはいけません**。Render が自動注入する値と競合し、`invalid port value` で起動に失敗します（`docs/task-24`）。
@@ -516,33 +545,43 @@ SPA のため、Static Site 側で `/*` → `/index.html` の Rewrite ルール�
 |---|---|
 | 24 | Render + Neon への本番デプロイ |
 | 25 | GitHub Actions による CI と、CI 成功時のみのデプロイ |
+
+### 品質・機能拡張（完了）
+
+| # | タスク |
+|---|---|
 | 26 | 統合テスト基盤（lib.rs 切り出し・`#[sqlx::test]`・認証系6件） |
-| 27 | 対局 API の統合テスト（join / move / resign / 終局、計25件） |
+| 27 | 対局 API の統合テスト（join / move / resign / 終局） |
 | 28 | OpenAPI 仕様の生成と Swagger UI の配信 |
-| 29 | エラーレスポンスの RFC 9457 化（Problem Details・OpenAPI 反映・計51件） |
-| 30 | WebSocket の統合テスト（配信・認証・参加者チェック・対局間の隔離、計7件） |
+| 29 | エラーレスポンスの RFC 9457 化（Problem Details・OpenAPI 反映） |
+| 30 | WebSocket の統合テスト（配信・認証・参加者チェック・対局間の隔離） |
 | 31 | WebSocket 接続の確実性（connected イベント・認証待ちタイムアウト） |
-| 32 | 対局履歴 API（GET /users/me/games・自分視点の勝敗判定・統合テスト9件） |
+| 32 | 対局履歴 API（`GET /users/me/games`・自分視点の勝敗判定） |
 | 33 | 対局履歴の画面（一覧・棋譜再生）と終了済み対局取得の修正 |
+| 34 | レーティング（Elo）とランキング |
+| 35 | パスワード要件の見直し（長さ中心・拒否リスト・文字数カウント修正） |
+| 36 | 対局からの離脱の扱い（切断猶予・ログアウト即敗北・sweep の定期実行） |
 
 ## Future Work
 
-当初計画していた項目はすべて完了しました。今後の候補:
-
 | 項目 | 内容 |
 |---|---|
+| パスワード表示トグル | 登録・ログインフォームの目玉アイコン |
+| Dependabot | Cargo / npm / GitHub Actions の依存更新 |
+| MFA（TOTP） | 2段階認証 |
 | K 値の可変化 | 対局数の少ないうちは変動を大きくする（暫定レーティング） |
 | 再接続時のイベント補完 | 切断中に進んだ手を、再接続後に差分で受け取る |
 | レーティング推移のグラフ | `games` の変動値の累積を可視化 |
 
 ## 開発記録
 
-全34タスクの設計判断・つまずいた点・再現コマンドを [`chess/docs/`](chess/docs/) に記録しています。特に、型チェックをすり抜けたバグの傾向は横断的な教訓としてまとめました。
+全36タスクの設計判断・つまずいた点・再現コマンドを [`chess/docs/`](chess/docs/) に記録しています。特に、型チェックをすり抜けたバグの傾向は横断的な教訓としてまとめました。
 
 - **API 関数の引数順序の取り違え** — `token` と `id` の位置が逆になるバグが4関数すべてで発生。全引数が `string` 型のため `tsc` をすり抜け、ブラウザで実行して初めて発覚した
-- **ファイル内容の誤混入・保存漏れ** — 関数定義が消えて呼び出し側だけ残る、別ファイル用のコードが書き込まれる、JSX が誤ったスコープに置かれる
-- **型システムがカバーしない境界** — Postgres の ENUM、`verbatimModuleSyntax`、CSS のコンテナクエリ基準
-- **環境・設定の不一致** — `.env` のポートずれ、PaaS が自動注入する環境変数との衝突、リポジトリ名変更後の remote 未更新。いずれもコードとは無関係なエラーとして現れる
+- **ファイル内容の誤混入・保存漏れ** — 関数定義が消えて呼び出し側だけ残る、別ファイル用のコードが書き込まれる、JSX が誤ったスコープに置かれる。**5回発生**しており、貼り付け後の `git diff` 確認を手順に組み込んだ
+- **型システムがカバーしない境界** — Postgres の ENUM、`verbatimModuleSyntax`、CSS のコンテナクエリ基準、コネクションプールとセッションスコープのロック
+- **テスト自体のバグ** — 検証したいものを検証しなくなっても、テストは緑のまま通り続ける
+- **環境・設定の不一致** — `.env` のポートずれ、PaaS が自動注入する環境変数との衝突、マイグレーションの適用漏れ、ビルド後のプロセス再起動忘れ。いずれもコードとは無関係なエラーとして現れる
 
 いずれも「ビルドが通ること」では検出できず、**実際にブラウザで動かし、DB の中身を確認し、DevTools でネットワークと DOM を見た**ことで発見に至っています。
 

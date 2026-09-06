@@ -3,12 +3,13 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/useAuth";
 import { useToast } from "../context/useToast";
 import { useGameSocket } from "../hooks/useGameSocket";
-import { getGame, getMoves, makeMove, resignGame } from "../api/games";
+import { claimAbandonment, getGame, getMoves, makeMove, resignGame } from "../api/games";
 import { getUser } from "../api/users";
 import ChessBoard from "../components/ChessBoard";
 import { UNICODE_SYMBOLS } from "../lib/pieceSymbols";
 import ConnectionLED from "../components/ConnectionLED";
 import ConnectionBanner from "../components/ConnectionBanner";
+import DisconnectCountdown from "../components/DisconnectCountdown";
 import GameMenu from "../components/GameMenu";
 import GameOverOverlay from "../components/GameOverOverlay";
 import MoveHistory from "../components/MoveHistory";
@@ -45,6 +46,7 @@ export default function GamePage() {
     target: string;
   } | null>(null);
   const [moves, setMoves] = useState<MoveRow[]>([]);
+  const [opponentGrace, setOpponentGrace] = useState<number | null>(null);
 
   // WebSocketイベントを受信するたびに盤面を更新する(useGameSocket内のonmessageから直接呼ばれる)
   const handleGameEvent = useCallback(
@@ -56,15 +58,27 @@ export default function GamePage() {
           ...prev,
           { move_number: prev.length + 1, uci: event.uci, fen_after: event.fen },
         ]);
-      } else if (event.type === "game_over") {
-        setResult(event.result);
       } else if (event.type === "opponent_joined") {
         setOpponentId(event.user_id);
-        setGame((prev) => (prev ? { ...prev, black_user_id: event.user_id } : prev));
+        setGame((prev) =>
+          prev ? { ...prev, black_user_id: event.user_id, status: "in_progress" } : prev
+        );
         showToast("対戦相手が参加しました");
+      } else if (event.type === "player_disconnected") {
+        // 自分の切断イベントは無視する(自分は今この画面を見ている)
+        if (event.user_id !== user?.id) {
+          setOpponentGrace(event.remaining_seconds);
+        }
+      } else if (event.type === "player_reconnected") {
+        if (event.user_id !== user?.id) {
+          setOpponentGrace(null);
+        }
+      } else if (event.type === "game_over") {
+        setResult(event.result);
+        setOpponentGrace(null);
       }
     },
-    [showToast]
+    [showToast, user?.id]
   );
 
   const status = useGameSocket(id, token, handleGameEvent);
@@ -172,6 +186,16 @@ export default function GamePage() {
     }
   }
 
+  // カウントが0になったらサーバーに判定を要求する。
+  // 判定はサーバーが行うので、クライアントの時計がずれていても
+  // 猶予前に勝ちになることはない
+  const handleGraceExpired = useCallback(() => {
+    if (!id || !token) return;
+    claimAbandonment(id, token).catch(() => {
+      // 失敗してもsweepが拾う。画面は「確定しています」のまま
+    });
+  }, [id, token]);
+
   function handleLogout() {
     showToast("ログアウトしました");
     logout();
@@ -195,12 +219,17 @@ export default function GamePage() {
     );
   }
 
+  // 対局が進行中かどうか。opponent_joined で status を更新するようにしたので
+  // 対局作成者側でも正しく true になる
+  const isGameActive = result === null && game.status === "in_progress";
+
   return (
     <div className="game-page">
       <GameMenu
         onResign={handleResign}
         onLogout={handleLogout}
         resignDisabled={isResigning || result !== null || !isConnected}
+        isGameActive={isGameActive}
       />
 
       <div className="game-status-bar">
@@ -213,6 +242,8 @@ export default function GamePage() {
       </div>
 
       <ConnectionBanner status={status} />
+
+      <DisconnectCountdown initialRemaining={opponentGrace} onExpire={handleGraceExpired} />
 
       <div className="game-layout">
         <div className="game-board-area">
@@ -255,9 +286,18 @@ export default function GamePage() {
         <MoveHistory moves={moves} />
       </div>
 
-      <div className="game-actions">
-        <button onClick={() => navigate("/lobby")}>ロビーへ戻る</button>
-      </div>
+      {/* ロビーへ戻るも対局中は出さない。戻ってもその対局は進行中のままで、
+          相手は指し手を待ち続ける */}
+      {!isGameActive && (
+        <div className="game-actions">
+          <button onClick={() => navigate("/lobby")}>ロビーへ戻る</button>
+        </div>
+      )}
+
+      {/* 対局中に抜ける手段が投了だけになるので、それが分かるようにしておく */}
+      {isGameActive && (
+        <p className="game-hint">対局中はロビーに戻れません。中断する場合は投了してください。</p>
+      )}
 
       <GameOverOverlay result={result} myColor={myColor} />
     </div>

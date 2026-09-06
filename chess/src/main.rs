@@ -27,13 +27,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "dev-secret-change-me".to_string()
     });
 
+    let sweep_token = std::env::var("SWEEP_TOKEN").unwrap_or_default();
+    if sweep_token.is_empty() {
+        tracing::warn!("SWEEP_TOKEN未設定のため /internal/sweep は使用できません");
+    }
+
     let db = PgPool::connect(&database_url).await?;
+
+    // ローカルDBへの適用漏れで column does not exist が起きた。
+    // sqlx::test は毎回専用DBに全マイグレーションを当てるため、テストでは
+    // 気づけない。起動時に適用すれば、ローカルも本番も漏れが構造的に無くなる。
+    //
+    // Render の無料枠は単一インスタンスなので、複数プロセスが同時に
+    // マイグレーションを走らせる心配はない。将来スケールさせるなら
+    // advisory lock で囲む必要がある。
+    sqlx::migrate!("./migrations")
+        .run(&db)
+        .await
+        .expect("マイグレーションの適用に失敗しました");
+
+    tracing::info!("migrations applied");
 
     let state = AppState {
         games: Arc::new(RwLock::new(HashMap::new())),
         db,
         jwt_secret: Arc::new(jwt_secret),
         game_channels: Arc::new(RwLock::new(HashMap::new())),
+        game_connections: Arc::new(RwLock::new(HashMap::new())),
+        sweep_token,
     };
 
     let app = build_router(state);

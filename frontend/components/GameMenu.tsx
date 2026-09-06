@@ -1,63 +1,30 @@
-import { useState, useRef, useEffect } from "react";
-
 interface GameMenuProps {
   onResign: () => void;
   onLogout: () => void;
-  resignDisabled: boolean;
+  resignDisabled?: boolean;
+  /**
+   * 対局が進行中か。
+   *
+   * 進行中はログアウトを表示しない。ログアウトは即敗北になるため、
+   * 警告して許すより操作させないほうが単純。
+   * 対局から抜けたい場合は投了する(そちらは常に押せる)。
+   */
+  isGameActive?: boolean;
 }
 
-export default function GameMenu({ onResign, onLogout, resignDisabled }: GameMenuProps) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
+export default function GameMenu({
+  onResign,
+  onLogout,
+  resignDisabled,
+  isGameActive,
+}: GameMenuProps) {
   return (
-    <div className="game-menu" ref={ref}>
-      <button
-        className="game-menu-trigger"
-        onClick={() => setOpen((v) => !v)}
-        aria-haspopup="true"
-        aria-expanded={open}
-        aria-label="メニュー"
-      >
-        <span />
-        <span />
-        <span />
+    <div className="game-menu">
+      <button onClick={onResign} disabled={resignDisabled}>
+        投了
       </button>
-
-      {open && (
-        <div className="game-menu-dropdown" role="menu">
-          <button
-            role="menuitem"
-            onClick={() => {
-              setOpen(false);
-              onResign();
-            }}
-            disabled={resignDisabled}
-          >
-            投了する
-          </button>
-          <button
-            role="menuitem"
-            className="game-menu-danger"
-            onClick={() => {
-              setOpen(false);
-              onLogout();
-            }}
-          >
-            ログアウト
-          </button>
-        </div>
-      )}
+      {/* 対局が終われば戻る */}
+      {!isGameActive && <button onClick={onLogout}>ログアウト</button>}
     </div>
   );
 }

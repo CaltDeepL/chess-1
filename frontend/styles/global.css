@@ -377,6 +377,12 @@ label {
   color: var(--text);
 }
 
+.game-hint {
+  text-align: center;
+  font-size: 0.85em;
+  opacity: 0.7;
+}
+
 /* ===== レスポンシブ ===== */
 
 @media (max-width: 480px) {
@@ -587,6 +593,26 @@ label {
   border-bottom: 1px solid rgba(251, 191, 36, 0.4);
   color: #fde68a;
   backdrop-filter: blur(8px);
+}
+
+.disconnect-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.75rem 1rem;
+  margin: 0.5rem 0;
+  border-radius: 8px;
+  border-left: 4px solid #f39c12;
+  background: rgba(243, 156, 18, 0.12);
+}
+
+.disconnect-banner-title {
+  font-weight: bold;
+}
+
+.disconnect-banner-countdown {
+  font-size: 0.9em;
+  font-variant-numeric: tabular-nums;
 }
 
 @media (max-width: 480px) {

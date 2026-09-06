@@ -1,9 +1,10 @@
 import { useState } from "react";
-import type { FormEvent } from "react";
+import type { SyntheticEvent } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { register } from "../api/auth";
 import { useAuth } from "../context/useAuth";
 import type { ApiError } from "../api/client";
+import PasswordInput from "../components/PasswordInput";
 
 export default function RegisterPage() {
   const [username, setUsername] = useState("");
@@ -15,7 +16,7 @@ export default function RegisterPage() {
   const { login: setAuth } = useAuth();
   const navigate = useNavigate();
 
-  async function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
 
@@ -57,25 +58,22 @@ export default function RegisterPage() {
           required
         />
 
-        <label htmlFor="password">パスワード</label>
-        <input
-          id="password"
-          type="password"
+        <PasswordInput
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
+          onChange={setPassword}
           autoComplete="new-password"
-          minLength={8}
+          hint="12文字以上。記号や数字は必須ではないので、覚えやすい文の組み合わせでも構いません"
+          required
+          disabled={isSubmitting}
         />
 
-        <label htmlFor="confirmPassword">パスワード(確認)</label>
-        <input
-          id="confirmPassword"
-          type="password"
+        <PasswordInput
           value={confirmPassword}
-          onChange={(e) => setConfirmPassword(e.target.value)}
-          required
+          onChange={setConfirmPassword}
+          label="パスワード(確認)"
           autoComplete="new-password"
+          required
+          disabled={isSubmitting}
         />
 
         {error && <p className="auth-error">{error}</p>}

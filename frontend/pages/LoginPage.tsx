@@ -1,9 +1,10 @@
 import { useState } from "react";
-import type { FormEvent } from "react";
+import type { SyntheticEvent } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { login } from "../api/auth";
 import { useAuth } from "../context/useAuth";
 import type { ApiError } from "../api/client";
+import PasswordInput from "../components/PasswordInput";
 
 export default function LoginPage() {
   const [username, setUsername] = useState("");
@@ -14,7 +15,7 @@ export default function LoginPage() {
   const { login: setAuth } = useAuth();
   const navigate = useNavigate();
 
-  async function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     setIsSubmitting(true);
@@ -52,14 +53,12 @@ export default function LoginPage() {
           autoComplete="username"
         />
 
-        <label htmlFor="password">パスワード</label>
-        <input
-          id="password"
-          type="password"
+        <PasswordInput
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
+          onChange={setPassword}
           autoComplete="current-password"
+          required
+          disabled={isSubmitting}
         />
 
         {error && <p className="auth-error">{error}</p>}

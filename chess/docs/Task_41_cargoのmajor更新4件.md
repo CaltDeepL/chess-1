@@ -1,19 +1,21 @@
-# task-41 argon2 0.6 / tower-http 0.7 への更新
+# task-41 Cargo の major 更新4件（argon2 / tower-http / rand / shakmaty）
 
 ## ゴールと完了条件
-- Dependabot が提案した Cargo の major 更新に対応する
-- 完了条件: 全テストが緑、**既存ユーザーがログインできること**
-
-axum 0.8 移行（task-39）の後に提案された4本のうち3本を扱う。`shakmaty` 0.30 は影響範囲が最大のため別タスクとする。
+- axum 0.8 移行（task-39）の後に提案された Cargo の major 更新に対応する
+- 完了条件: 全テストが緑、**既存ユーザーがログインできること**、**合法手判定・終局判定の意味が変わっていないこと**
 
 | PR | 判断 |
 |---|---|
 | #36 tower-http 0.6.11 → 0.7.1 | そのままマージ（CI 緑） |
 | #38 argon2 0.5.3 → 0.6.0 | 対応（コード変更あり） |
 | #35 rand 0.8.8 → 0.10.2 | **依存ごと削除** |
-| #37 shakmaty 0.27.3 → 0.30.1 | 次タスクへ |
+| #37 shakmaty 0.27.3 → 0.30.1 | 対応（影響範囲が最大のため最後に） |
 
-## argon2 0.6 の変更点
+---
+
+# 第1部: argon2 0.6
+
+## 変更点
 
 `SaltString` が廃止され、`hash_password` が salt を内部で自動生成するようになった。`PasswordHash` は `password_hash::phc::PasswordHash` に移動。
 
@@ -152,10 +154,80 @@ git commit -m "..."
 
 一度に1つの作業に絞るのが理想だが、依存更新は他の PR が次々来るので完全には避けられない。せめて **`git status` と `git show --stat` を挟む**習慣を持つ。
 
+---
+
+# 第2部: shakmaty 0.30
+
+major が3つ跨ぐうえ、合法手判定・終局判定の中核なので最後に回した。
+
+## 修正は3箇所だけだった
+
+コンパイルエラーは2種類、実質3箇所。**いずれも参照の受け渡しの変更**で、判定ロジックには一切触れていない。
+
+### `Position::play` が値渡しになった
+
+```diff
+- match position.clone().play(&mv) {
++ match position.clone().play(mv) {
+```
+
+`src/routes/game.rs:378` と `src/domain/outcome.rs:39` の2箇所。
+
+### `Fen::from_position` が参照を取るようになった
+
+```diff
+  pub fn position_to_fen(position: &Chess) -> String {
+-     Fen::from_position(position.clone(), EnPassantMode::Legal).to_string()
++     Fen::from_position(position, EnPassantMode::Legal).to_string()
+  }
+```
+
+**これは改善。** 0.27 では値を要求されたため `clone()` が必須だったが、0.30 では参照で済む。`position_to_fen` は指し手のたびに呼ばれるので、局面のコピーが1回減る。
+
+コンパイラは `&position.clone()` を提案してきたが、**`clone()` してから参照を取るのは無駄**。引数が既に `&Chess` を受けていたので、そのまま渡せばよい。**コンパイラの提案は「通る形」であって「正しい形」とは限らない。**
+
+## 「コンパイルが通れば OK」ではなかった
+
+shakmaty は他の依存と性質が違う。`axum` や `argon2` と違い、**このアプリの正しさそのものを担っている**。API が変わらなくても、内部の判定が変わっていれば「詰みなのに詰みと判定されない」といった形で現れうる。しかもコンパイルは通る。
+
+確認は既存のテストに委ねた。
+
+| テスト | 何を守るか | 結果 |
+|---|---|---|
+| `domain::outcome` 6件 | 詰み・ステイルメイト・駒不足の判定 | 緑 |
+| `checkmate_test.rs` 5件 | Fool's mate / Scholar's mate の実際の進行 | 緑 |
+| `illegal_move_is_rejected` | 合法手の判定 | 緑 |
+| `malformed_uci_is_rejected` | 不正な UCI の拒否 | 緑 |
+| `checkmate_is_broadcast` | 終局イベントの配信 | 緑 |
+
+**この領域を手厚くテストしておいた投資が、そのまま回収された。** ルール判定をライブラリに任せる方針を採る以上、ライブラリの挙動を自前のテストで固定しておくことに意味がある。
+
+逆に、コンパイルを通すために `expect` や型変換を挟んだ箇所は無い。**そういう箇所があれば、意味が変わっていないか個別に見る必要があった。**
+
+---
+
+## Dependabot 由来の対応が一巡した
+
+task-38 で導入してから、提案された更新への対応が一通り終わった。
+
+| PR | 対応 | タスク |
+|---|---|---|
+| minor/patch グループ（npm 9件 / uuid / actions 2件） | そのままマージ | 38 |
+| axum 0.8 + utoipa-axum + tower-http + tokio-tungstenite | 4つ同時に上げる | 39 |
+| jsonwebtoken 11 | feature 指定を追加 | 40 |
+| typescript 7 | **見送り**（typescript-eslint が未対応） | 40 |
+| tower-http 0.7 | そのままマージ | 41 |
+| argon2 0.6 | 対応。既存ハッシュの互換性を確認 | 41 |
+| rand 0.10 | **依存ごと削除**（不要になった） | 41 |
+| shakmaty 0.30 | 対応 | 41 |
+
+**8件の提案に対し、4通りの結末があった**（そのままマージ / まとめて対応 / 見送り / 削除）。「Dependabot が出した PR をマージする」だけの作業ではないことが、一巡して分かった。
+
 ## 結果
 
 **160件**（ユニット 63 / 統合 97）が緑。`fmt` / `clippy -D warnings` もクリーン。
 
 ## 次タスクへの引き継ぎ
-- **#37 shakmaty 0.27.3 → 0.30.1 が残っている。** major が3つ飛びで、合法手判定・終局判定の中核。`Chess` 型や `Position` トレイトの API が変われば `domain/` 全体に波及する。ただしテストが手厚いので、通れば信頼できる
+- Dependabot 由来の対応は完了。以降は通常の運用（週1でグループ化された PR をレビュー）
+- **shakmaty の feature に `variant` がある。** 将来 Chess960 などを扱うなら有効化する
 - Future Work: MFA（TOTP）、K 値の可変化、再接続時のイベント補完、レーティング推移のグラフ

@@ -375,7 +375,7 @@ pub async fn make_move(
         .to_move(position)
         .map_err(|e| AppError::BadRequest(format!("不正な指し手です: {}", e)))?;
 
-    match position.clone().play(&mv) {
+    match position.clone().play(mv) {
         Ok(new_position) => {
             *position = new_position;
 
@@ -450,7 +450,7 @@ pub async fn make_move(
 
 /// shakmatyのChess局面をFEN文字列に変換するヘルパー
 pub fn position_to_fen(position: &Chess) -> String {
-    Fen::from_position(position.clone(), EnPassantMode::Legal).to_string()
+    Fen::from_position(position, EnPassantMode::Legal).to_string()
 }
 
 /// DB に保存された FEN から局面を復元する。

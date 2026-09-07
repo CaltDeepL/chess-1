@@ -207,11 +207,9 @@ async fn existing_short_password_can_still_log_in(pool: PgPool) {
     // 新要件を通らない長さのパスワードを、DBに直接作る
     // （register 経由では作れないため）
     let user_id = uuid::Uuid::new_v4();
-    let salt = argon2::password_hash::SaltString::generate(&mut rand::thread_rng());
-    let hash =
-        argon2::PasswordHasher::hash_password(&argon2::Argon2::default(), b"oldpass1", &salt)
-            .unwrap()
-            .to_string();
+    let hash = argon2::PasswordHasher::hash_password(&argon2::Argon2::default(), b"oldpass1")
+        .unwrap()
+        .to_string();
 
     sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, $3)")
         .bind(user_id)

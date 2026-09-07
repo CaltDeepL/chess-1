@@ -1,5 +1,5 @@
 use argon2::{
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    password_hash::{phc::PasswordHash, PasswordHasher, PasswordVerifier},
     Argon2,
 };
 use axum::{extract::State, http::HeaderMap, Json};
@@ -37,9 +37,8 @@ pub async fn register(
     validate_password(&payload.password, &payload.username)
         .map_err(|e| AppError::BadRequest(e.detail()))?;
 
-    let salt = SaltString::generate(&mut rand::thread_rng());
     let password_hash = Argon2::default()
-        .hash_password(payload.password.as_bytes(), &salt)
+        .hash_password(payload.password.as_bytes())
         .map_err(|e| AppError::Internal(format!("パスワードのハッシュ化に失敗しました: {}", e)))?
         .to_string();
 
@@ -314,5 +313,29 @@ mod tests {
         let headers = HeaderMap::new();
 
         assert!(extract_user_id(&headers, SECRET).is_err());
+    }
+
+    /// argon2 0.5.3 で生成した PHC 文字列を、現在の argon2 で検証できる
+    ///
+    /// 0.5→0.6 では実機で確認した(パスワード不一致の401とハッシュ
+    /// パース失敗の500を区別して切り分けた)が、口頭の確認は次に argon2 を
+    /// 上げたときには残らない。実際にDBへ保存されていた値をテストに
+    /// 焼き込むことで、将来のバージョンアップでも同じ確認を強制する。
+    #[test]
+    fn old_argon2_hash_is_still_verifiable() {
+        // 2026-09-06 に argon2 0.5.3 で生成された実際のPHC文字列
+        // (ローカルDBの menutest_a_1788721987864 から取得)
+        const STORED_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$/xAsZkGG+krK6wW7XvIS4g$kFyhYJ7Mjwbmf4PvsKHdawFuQkcOQA8CNz07a2Es1MQ";
+        const ITS_PASSWORD: &str = "menu test secret password";
+
+        let parsed =
+            PasswordHash::new(STORED_HASH).expect("旧バージョンのPHC文字列がパースできない");
+
+        assert!(
+            Argon2::default()
+                .verify_password(ITS_PASSWORD.as_bytes(), &parsed)
+                .is_ok(),
+            "旧バージョンで作られたハッシュを検証できない"
+        );
     }
 }

@@ -191,3 +191,133 @@ pub fn extract_user_id(headers: &HeaderMap, jwt_secret: &str) -> Result<Uuid, Ap
 
     verify_token(token, jwt_secret)
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+ 
+    const SECRET: &str = "test-secret-for-unit-tests";
+ 
+    /// 発行したトークンから同じユーザーIDが取り出せる
+    ///
+    /// jsonwebtoken v11 は暗号バックエンドの明示的な選択（rust_crypto /
+    /// aws_lc_rs）が必須で、指定を忘れると署名・検証時に CryptoProvider が
+    /// 見つからず **panic する**。コンパイルは通るため、この経路を通る
+    /// テストが無いと本番で初めて落ちる。
+    #[test]
+    fn valid_token_round_trips() {
+        let user_id = Uuid::new_v4();
+        let token = issue_token(user_id, SECRET).unwrap();
+ 
+        assert_eq!(verify_token(&token, SECRET).unwrap(), user_id);
+    }
+ 
+    /// 期限切れのトークンは拒否される
+    ///
+    /// verify_token は Validation::default() を使っており、有効期限の
+    /// 検証はその既定値に依存している。jsonwebtoken を上げたときに
+    /// 既定値が変わって検証が緩くなっても、コンパイルエラーにはならない。
+    #[test]
+    fn expired_token_is_rejected() {
+        let claims = Claims {
+            sub: Uuid::new_v4(),
+            exp: (chrono::Utc::now() - chrono::Duration::hours(1)).timestamp() as usize,
+        };
+        let token = encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(SECRET.as_bytes()),
+        )
+        .unwrap();
+ 
+        assert!(
+            verify_token(&token, SECRET).is_err(),
+            "期限切れのトークンが通ってしまった"
+        );
+    }
+ 
+    /// 有効期限内なら受け入れる
+    ///
+    /// 上の expired_token_is_rejected だけだと「常に拒否している」実装でも
+    /// 通ってしまうため、対になる確認を置く
+    #[test]
+    fn token_within_expiry_is_accepted() {
+        let user_id = Uuid::new_v4();
+        let claims = Claims {
+            sub: user_id,
+            exp: (chrono::Utc::now() + chrono::Duration::minutes(1)).timestamp() as usize,
+        };
+        let token = encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(SECRET.as_bytes()),
+        )
+        .unwrap();
+ 
+        assert_eq!(verify_token(&token, SECRET).unwrap(), user_id);
+    }
+ 
+    /// 別の鍵で署名されたトークンは拒否される
+    #[test]
+    fn token_signed_with_another_secret_is_rejected() {
+        let token = issue_token(Uuid::new_v4(), "secret-a").unwrap();
+ 
+        assert!(
+            verify_token(&token, "secret-b").is_err(),
+            "署名の検証が効いていない"
+        );
+    }
+ 
+    /// 改ざんされたトークンは拒否される
+    #[test]
+    fn tampered_token_is_rejected() {
+        let token = issue_token(Uuid::new_v4(), SECRET).unwrap();
+        // ペイロード部（2番目のセグメント）の末尾を1文字変える
+        let mut parts: Vec<&str> = token.split('.').collect();
+        let tampered_payload = format!("{}A", parts[1]);
+        parts[1] = &tampered_payload;
+        let tampered = parts.join(".");
+ 
+        assert!(verify_token(&tampered, SECRET).is_err());
+    }
+ 
+    /// Authorization ヘッダーから取り出せる
+    #[test]
+    fn extract_user_id_reads_the_bearer_header() {
+        let user_id = Uuid::new_v4();
+        let token = issue_token(user_id, SECRET).unwrap();
+ 
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {token}").parse().unwrap(),
+        );
+ 
+        assert_eq!(extract_user_id(&headers, SECRET).unwrap(), user_id);
+    }
+ 
+    /// Bearer 形式でないヘッダーは拒否される
+    #[test]
+    fn extract_user_id_rejects_a_malformed_header() {
+        let token = issue_token(Uuid::new_v4(), SECRET).unwrap();
+ 
+        let mut headers = HeaderMap::new();
+        // Bearer プレフィックスなし
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            token.parse().unwrap(),
+        );
+ 
+        assert!(extract_user_id(&headers, SECRET).is_err());
+    }
+ 
+    /// ヘッダーが無ければ拒否される
+    #[test]
+    fn extract_user_id_rejects_a_missing_header() {
+        let headers = HeaderMap::new();
+ 
+        assert!(extract_user_id(&headers, SECRET).is_err());
+    }
+}
+ 

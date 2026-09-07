@@ -571,6 +571,7 @@ SPA のため、Static Site 側で `/*` → `/index.html` の Rewrite ルール�
 | 38 | Dependabot の導入（Cargo / npm / GitHub Actions、グループ化） |
 | 39 | axum 0.8 系への移行 |
 | 40 | major 更新2件の判断（jsonwebtoken 11 への更新と JWT の単体テスト、TypeScript 7 の見送り） |
+| 41 | argon2 0.6 / tower-http 0.7 への更新（rand 依存の削除、PHC 互換性テスト） |
 
 ## Future Work
 

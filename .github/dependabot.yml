@@ -75,6 +75,12 @@ updates:
         update-types:
           - "minor"
           - "patch"
+      ignore:
+      # typescript-eslint が TS 7.0 に未対応（7.1 以降で対応予定）。
+      # 上げると型情報を使った lint が起動しなくなる。
+      # https://github.com/typescript-eslint/typescript-eslint/issues/10940
+      - dependency-name: "typescript"
+        versions: ["7.x"]
 
   # ---------------------------------------------------------------------------
   # GitHub Actions

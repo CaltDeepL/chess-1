@@ -570,12 +570,12 @@ SPA のため、Static Site 側で `/*` → `/index.html` の Rewrite ルール�
 | 37 | パスワード入力の改善（表示トグル・要件の案内） |
 | 38 | Dependabot の導入（Cargo / npm / GitHub Actions、グループ化） |
 | 39 | axum 0.8 系への移行 |
+| 40 | major 更新2件の判断（jsonwebtoken 11 への更新と JWT の単体テスト、TypeScript 7 の見送り） |
 
 ## Future Work
 
 | 項目 | 内容 |
 |---|---|
-| Dependabot | Cargo / npm / GitHub Actions の依存更新 |
 | MFA（TOTP） | 2段階認証 |
 | K 値の可変化 | 対局数の少ないうちは変動を大きくする（暫定レーティング） |
 | 再接続時のイベント補完 | 切断中に進んだ手を、再接続後に差分で受け取る |

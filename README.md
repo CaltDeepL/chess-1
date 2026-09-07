@@ -572,7 +572,7 @@ SPA のため、Static Site 側で `/*` → `/index.html` の Rewrite ルール�
 | 39 | axum 0.8 系への移行 |
 | 40 | major 更新2件の判断（jsonwebtoken 11 への更新と JWT の単体テスト、TypeScript 7 の見送り） |
 | 41 | Cargo の major 更新4件（argon2 / tower-http / rand 削除 / shakmaty） |
-
+| 42 | セキュリティ運用の整備（ブランチ保護・cargo audit / npm audit の CI 追加） |
 ## Future Work
 
 | 項目 | 内容 |

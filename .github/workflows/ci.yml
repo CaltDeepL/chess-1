@@ -13,6 +13,8 @@ jobs:
   backend:
     name: Backend (Rust)
     runs-on: ubuntu-latest
+   
+    
 
     services:
       postgres:
@@ -55,6 +57,11 @@ jobs:
 
       - name: Test
         run: cargo test --all-targets
+      - name: Security audit
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
+        working-directory: chess
 
   frontend:
     name: Frontend (React)
@@ -67,9 +74,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          
 
       - name: Install
         run: npm ci
+      - name: npm audit
+        run: npm audit --audit-level=moderate
 
       - name: Type check
         run: npx tsc -b --force

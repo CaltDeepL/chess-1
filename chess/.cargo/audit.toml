@@ -1,0 +1,31 @@
+
+# cargo audit の設定。ここに書く ignore は「この脆弱性は無視してよい」という
+# 判断そのものなので、必ず理由と見直しの契機を残す。
+# 理由の無い ignore は、理由の消えたバージョンピンと同じ末路をたどる（Task_39）。
+ 
+[advisories]
+ignore = [
+    # RUSTSEC-2023-0071 — RSA の Marvin Attack（タイミングサイドチャネル）
+    #
+    # 修正版が公開されていない（2023-11 に報告、以降 "No fixed upgrade is
+    # available!" のまま）。したがって「上げれば直る」種類の問題ではない。
+    #
+    # 経路: sqlx-mysql → rsa
+    #   このプロジェクトは sqlx の postgres feature のみを使っており、
+    #   MySQL に接続しない。しかし Cargo.lock には mysql 用のエントリが
+    #   載るため、cargo audit の走査対象に入る。
+    #
+    # 到達しないことの根拠:
+    #   $ cargo tree -i rsa --target all
+    #   warning: nothing to print.
+    #   → 有効な feature の組み合わせでは rsa がビルドされない。
+    #     ビルドされないものは実行もされないため、RSA の復号処理に
+    #     タイミング攻撃を仕掛ける経路が存在しない。
+    #
+    # 見直しの契機:
+    #   - sqlx が rsa への依存を切ったとき
+    #   - rsa 側に修正版が出たとき
+    #   - このプロジェクトが MySQL を使うようになったとき（その場合は
+    #     無視できなくなる）
+    "RUSTSEC-2023-0071",
+]

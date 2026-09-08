@@ -15,7 +15,7 @@ API は Swagger UI からブラウザ上で試せます。`POST /auth/register` 
 
 > 無料プランで稼働しているため、アクセスがない間はインスタンスが停止します。最初のリクエストは応答まで数十秒かかることがあります。
 
-> **ポートフォリオプロジェクトです。** 全36タスクを完了し、本番環境（Render + Neon）で稼働しています。CI が green のときだけデプロイが走る構成です。
+> **ポートフォリオプロジェクトです。** 全42タスクを完了し、本番環境（Render + Neon）で稼働しています。CI が green のときだけデプロイが走り、`main` はブランチ保護で直接 push できない構成です。
 
 ---
 
@@ -88,13 +88,17 @@ API は Swagger UI からブラウザ上で試せます。`POST /auth/register` 
 
 ```
 chess-app/
-├── .github/workflows/        # ci.yml / deploy.yml / sweep.yml
+├── .github/
+│   ├── workflows/            # ci.yml / deploy.yml / sweep.yml
+│   └── dependabot.yml        # Cargo / npm / GitHub Actions（グループ化・週1）
 ├── package.json              # Vite プロジェクトのルートはリポジトリ直下
 ├── vite.config.ts            # (frontend/ はソースのみで package.json は無い)
 ├── index.html                # <script src="/frontend/main.tsx">
 ├── chess/                    # バックエンド（Rust）
 │   ├── Dockerfile            # マルチステージビルド
 │   ├── docker-compose.yml    # Postgres + API
+│   ├── rust-toolchain.toml   # Rust バージョンの一元管理（CI・Docker共通）
+│   ├── .cargo/audit.toml     # cargo audit の ignore（理由付き）
 │   ├── migrations/           # sqlx マイグレーション
 │   ├── docs/                 # タスクごとの設計メモ
 │   └── src/
@@ -320,6 +324,14 @@ sqlx CLI での手動適用に頼っていたところ、ローカル DB への�
 
 起動時に `sqlx::migrate!()` を実行する形にし、ローカル・本番とも適用漏れが構造的に起きないようにしました。本番へのマイグレーション適用が手動だった問題も同時に解消しています。
 
+### Rust バージョンを `rust-toolchain.toml` で一元化する
+
+CI は `dtolnay/rust-toolchain@stable`、Docker は `FROM rust:1.90` 固定と、**バージョンを決める場所が2つ**ありました。依存の MSRV が上がったとき（shakmaty 0.30 が rustc 1.95 を要求）、ローカルと CI（常に最新の stable）は通るのに **Docker のビルドだけが落ちる**状態になり、`docker compose build` を実際に実行するまで気づけませんでした（テストも CI も緑のまま）。
+
+`chess/rust-toolchain.toml` にバージョンを1箇所で宣言し、CI からは `dtolnay/rust-toolchain@stable` のステップ自体を削除しました。ランナーには rustup が入っており、`cargo` の初回実行時にこのファイルを読んで指定バージョンを自動取得します。`stable` ではなく具体的なバージョンを書くことで、依存の MSRV が上がれば CI がそこで落ちるようになります（意図した挙動）。
+
+Docker 側は `COPY Cargo.toml Cargo.lock rust-toolchain.toml ./` を `cargo build` より前に置く必要があります。ビルドの後にコピーする書き方をすると、レイヤーキャッシュにより**ファイルは存在してもビルドには一切反映されません**。`FROM rust:1.90` にわざと戻してビルドが通ることを確認し、rustup が `rust-toolchain.toml` 経由で正しく 1.96 を取得していることを実証しています。
+
 ### コンテナクエリ単位（cqw）と React Portal
 
 駒のサイズをマス幅に追従させるため CSS のコンテナクエリ単位（`cqw`）を使っていますが、**ドラッグ中の駒だけが肥大化する**現象が起きました。
@@ -364,7 +376,7 @@ pub fn decide(white_at: Option<DateTime<Utc>>, black_at: Option<DateTime<Utc>>, 
 
 - Docker / Docker Compose
 - Node.js
-- Rust 1.90 以降（ローカルでビルドする場合）
+- rustup（ローカルでビルドする場合。バージョンは `chess/rust-toolchain.toml` が指定し、`cargo` 実行時に自動で取得されます）
 - sqlx-cli（マイグレーションを手動実行する場合。通常は起動時に自動適用されます）
 
 ```bash
@@ -439,7 +451,7 @@ cargo test
 
 REST は `tower::ServiceExt::oneshot` でルータへ直接リクエストを投げ、HTTP サーバを起動せずにルーティングからハンドラ・DB までを通しで検証しています。WebSocket は `101 Switching Protocols` を伴うため oneshot では扱えず、こちらだけ空きポートで実サーバーを起動します。**同じ `AppState` を共有しているため、oneshot で作った対局が実サーバーの WS ハンドラからも見えます。**
 
-現在 **150 件**のテスト（ユニット 54 / 統合 96）が以下をカバーしています。
+現在 **160 件**のテスト（ユニット 63 / 統合 97）が以下をカバーしています。
 
 | ファイル | 件数 | 内容 |
 |---|---|---|
@@ -447,7 +459,7 @@ REST は `tower::ServiceExt::oneshot` でルータへ直接リクエストを投
 | `game_test.rs` | 12 | 対局参加、指し手の記録、権限・手番・合法性、終了済み対局の取得 |
 | `resign_test.rs` | 5 | 投了の結果反映、再投了、投了後の指し手拒否 |
 | `checkmate_test.rs` | 5 | Fool's mate / Scholar's mate による終局判定 |
-| `ws_test.rs` | 7 | イベント配信・順序・認証・参加者チェック・対局間の隔離 |
+| `ws_test.rs` | 8 | イベント配信・順序・認証・参加者チェック・対局間の隔離 |
 | `abandon_test.rs` | 21 | 切断猶予・両者離席・ログアウト即敗北・sweep・ロック解放 |
 | `rating_test.rs` | 7 | 経路別の適用、ゼロサム、二重適用の防止 |
 | `ranking_test.rs` | 8 | 順位付け、同着、認証任意、自分の順位 |
@@ -455,7 +467,7 @@ REST は `tower::ServiceExt::oneshot` でルータへ直接リクエストを投
 | `problem_details_test.rs` | 3 | Content-Type・`type`・`status` の検証 |
 | `openapi_test.rs` | 6 | 仕様の配信、パス数の一致、`ProblemDetails` の参照 |
 
-これに加え、`domain` 層（手番・終局・勝者・履歴・Elo・パスワード・切断判定）のユニットテストが 54 件あります。I/O を持たない純粋関数なので DB なしで実行でき、一瞬で終わります。
+これに加え、ユニットテストが63件あります。うち54件は `domain` 層（手番・終局・勝者・履歴・Elo・パスワード・切断判定）、9件は `auth` 層（JWTの発行・検証・改ざん検知に加え、旧バージョンの argon2 で生成した PHC 文字列が今のバージョンでも検証できるかの互換性テスト）です。いずれも I/O を持たない純粋関数・処理なので DB なしで実行でき、一瞬で終わります。
 
 **結果が確定する経路では、API のステータスコードだけでなく `games` テーブルの中身まで assert しています。** 過去に「API は 200 を返すのに DB が更新されていない」というサイレント障害を見逃した経験があるためです（`docs/task-07`）。
 
@@ -472,12 +484,14 @@ REST は `tower::ServiceExt::oneshot` でルータへ直接リクエストを投
 ## CI / CD
 
 ```
-PR
+PR（main への直接pushはブランチ保護で拒否）
  ↓
 CI
- ├─ backend:  cargo fmt --check / clippy -D warnings / cargo test
- └─ frontend: tsc -b / eslint / vite build
+ ├─ backend:  cargo fmt --check / clippy -D warnings / cargo test / cargo audit
+ └─ frontend: tsc -b / eslint / vite build / npm audit
 
+レビュー(0人承認でOK) + 全ステータスチェック green
+ ↓
 main merge
  ↓
 CI green
@@ -487,11 +501,30 @@ Render Deploy Hook（backend / frontend）
 
 | ワークフロー | トリガー | 内容 |
 |---|---|---|
-| CI | push（main）/ pull_request / 手動 | fmt・clippy・テスト（Postgres サービス付き）・フロントの型チェックとビルド |
+| CI | push（main）/ pull_request / 手動 | fmt・clippy・テスト（Postgres サービス付き）・`cargo audit`・フロントの型チェック・ビルド・`npm audit` |
 | Deploy | CI の成功（main のみ） | Render の Deploy Hook を起動 |
 | Sweep | 10分間隔 / 手動 | `POST /internal/sweep` を叩き、放置された対局を終了させる |
 
 **Render の auto-deploy は無効にしています。** auto-deploy は `main` への push を検知して即座にビルドを始めるため、テストの結果を待ちません。`workflow_run` イベントで CI の完了と結果を受け取り、成功時に限って Deploy Hook を叩く構成にしています。
+
+### ブランチ保護（Ruleset）
+
+`main` への直接 push を GitHub の Ruleset で禁止しています（`docs/task-42`）。従来は「CI が落ちていればデプロイは止まる」という `workflow_run` の防御しか無く、**CI を通さないコードが `main` に入ること自体は防げていませんでした**（このプロジェクトの開発中に実際に直接 push が通ってしまったのが発端です）。
+
+| 項目 | 設定 |
+|---|---|
+| Enforcement | Active |
+| Restrict deletions / Block force pushes | 有効 |
+| Require a pull request | 有効（Required approvals は **0**。1人開発では1以上にすると自分の PR を自分で承認できず何もマージできなくなる） |
+| Require status checks | `Backend (Rust)` / `Frontend (React)` |
+
+Classic ではなく現行の Ruleset を使っています。緊急時に Active/Disabled を切り替えられ、Classic のように削除して作り直す必要がないためです。
+
+### 依存の脆弱性監査
+
+Dependabot は「新しいバージョンが出た／脆弱性が公開された」ときに PR を出しますが、放置すれば脆弱なままです。CI に `cargo audit` / `npm audit` を追加し、**push・PR のたびに `Cargo.lock` / `package-lock.json` 全体を検査**しています。
+
+RUSTSEC-2023-0071（`rsa` のタイミングサイドチャネル、修正版なし）は `chess/.cargo/audit.toml` で ignore していますが、`cargo tree -i rsa --target all` が何も返さない（＝どのターゲットでもビルドされない、実行されないコードは攻撃経路にならない）ことを確認したうえで、**無視してよい理由と見直しの契機をファイルにコメントとして残しています**。理由のない ignore は、理由が消えたバージョンピン（`docs/task-39` の `uuid = "=1.10.0"`）と同じ末路をたどるためです。
 
 ## Deployment
 
@@ -581,10 +614,12 @@ SPA のため、Static Site 側で `/*` → `/index.html` の Rewrite ルール�
 | K 値の可変化 | 対局数の少ないうちは変動を大きくする（暫定レーティング） |
 | 再接続時のイベント補完 | 切断中に進んだ手を、再接続後に差分で受け取る |
 | レーティング推移のグラフ | `games` の変動値の累積を可視化 |
+| Dependabot security updates の有効化確認 | リポジトリ設定側のトグル。ファイルからは確認できない |
+| CodeQL / dependency-review-action | いずれも公開リポジトリなら無料。静的解析とPR単位の依存監査 |
 
 ## 開発記録
 
-全41タスクの設計判断・つまずいた点・再現コマンドを [`chess/docs/`](chess/docs/) に記録しています。特に、型チェックをすり抜けたバグの傾向は横断的な教訓としてまとめました。
+全42タスクの設計判断・つまずいた点・再現コマンドを [`chess/docs/`](chess/docs/) に記録しています。特に、型チェックをすり抜けたバグの傾向は横断的な教訓としてまとめました。
 
 - **API 関数の引数順序の取り違え** — `token` と `id` の位置が逆になるバグが4関数すべてで発生。全引数が `string` 型のため `tsc` をすり抜け、ブラウザで実行して初めて発覚した
 - **ファイル内容の誤混入・保存漏れ** — 関数定義が消えて呼び出し側だけ残る、別ファイル用のコードが書き込まれる、JSX が誤ったスコープに置かれる。**5回発生**しており、貼り付け後の `git diff` 確認を手順に組み込んだ

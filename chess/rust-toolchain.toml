@@ -1,0 +1,21 @@
+# このプロジェクトが使う Rust のバージョンを1箇所で決める。
+# rustup がこのファイルを読み、指定のツールチェインが無ければ自動で入れる。
+#
+# なぜ必要か:
+#   以前は CI が stable、Docker が rust:1.90 固定で乖離していた。
+#   依存の MSRV が上がったとき（shakmaty 0.30 が rustc 1.95 を要求）、
+#   ローカルと CI は通るのに Docker のビルドだけが落ち、
+#   docker compose build を実行するまで気づけなかった（Task_42）。
+#
+# channel を stable ではなく具体的なバージョンにしているのは、
+# 「いつの間にか上がっていた」を防ぐため。上げるときはこのファイルを
+# 変更するので、変更が履歴に残り、CI で検証される。
+#
+# 上げ方:
+#   1. channel を新しいバージョンに変更
+#   2. Dockerfile の FROM も同じバージョンに変更
+#   3. cargo test / clippy / docker compose build がすべて通ることを確認
+
+[toolchain]
+channel = "1.96"
+components = ["rustfmt", "clippy"]

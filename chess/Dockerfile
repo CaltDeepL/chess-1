@@ -5,7 +5,7 @@ WORKDIR /app
 # 依存クレートだけを先にビルドしてDockerレイヤーにキャッシュする。
 # ソースコードを変更しただけの再ビルドでは、Cargo.toml/Cargo.lockが
 # 変わらない限りこの層は再利用され、Renderの無料枠でもビルド時間が安定する。
-COPY Cargo.toml Cargo.lock ./
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 RUN mkdir src && echo "fn main() {}" > src/main.rs
 RUN cargo build --release
 RUN rm -rf src

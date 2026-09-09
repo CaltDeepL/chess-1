@@ -51,11 +51,19 @@ pub async fn register(
         .execute(&state.db)
         .await;
 
-    if let Err(e) = result {
-        tracing::warn!(error = %e, "register failed");
-        return Err(AppError::Conflict(
-            "そのユーザー名は既に使われています".to_string(),
-        ));
+    match result {
+        Ok(_) => {}
+        Err(sqlx::Error::Database(error)) if error.is_unique_violation() => {
+            tracing::warn!("register failed: duplicate username");
+            return Err(AppError::Conflict(
+                "そのユーザー名は既に使われています".to_string(),
+            ));
+        }
+        Err(error) => {
+            return Err(AppError::Internal(format!(
+                "ユーザー登録の保存に失敗しました: {error}"
+            )));
+        }
     }
 
     let token = issue_token(user_id, &state.jwt_secret)?;
@@ -171,7 +179,7 @@ pub fn verify_token(token: &str, jwt_secret: &str) -> Result<Uuid, AppError> {
         &Validation::default(),
     )
     .map(|data| data.claims.sub)
-    .map_err(|e| AppError::Unauthorized(format!("トークンが無効です: {}", e)))
+    .map_err(|_| AppError::Unauthorized("トークンが無効です".to_string()))
 }
 
 /// Authorizationヘッダー(Bearer方式)からユーザーIDを取り出すヘルパー

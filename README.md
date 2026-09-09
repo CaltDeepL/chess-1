@@ -15,7 +15,7 @@ API は Swagger UI からブラウザ上で試せます。`POST /auth/register` 
 
 > 無料プランで稼働しているため、アクセスがない間はインスタンスが停止します。最初のリクエストは応答まで数十秒かかることがあります。
 
-> **ポートフォリオプロジェクトです。** 全43タスクを完了し、本番環境（Render + Neon）で稼働しています。CI が green のときだけデプロイが走り、`main` はブランチ保護で直接 push できない構成です。
+> **ポートフォリオプロジェクトです。** 全44タスクを完了し、本番環境（Render + Neon）で稼働しています。CI が green のときだけデプロイが走り、`main` はブランチ保護で直接 push できない構成です。
 
 ---
 
@@ -82,7 +82,7 @@ API は Swagger UI からブラウザ上で試せます。`POST /auth/register` 
         GitHub Actions
 ```
 
-進行中の局面は `Arc<RwLock<HashMap<Uuid, Chess>>>` でメモリに、確定した情報（ユーザー・対局結果・棋譜・レーティング）は PostgreSQL に置いています。
+進行中の局面は `Arc<RwLock<HashMap<Uuid, Chess>>>` をホットキャッシュとして使い、確定した情報（ユーザー・対局結果・棋譜・レーティング）は PostgreSQL に置いています。サーバー再起動などでキャッシュが失われた場合は、永続化済み棋譜の最新 `fen_after` から局面を復元します。
 
 ### ディレクトリ構成
 
@@ -191,9 +191,9 @@ WebSocket の `onopen` は TCP と upgrade の完了しか意味しません。�
 
 1手ごとに局面を DB へ書き戻すと、対局中のレスポンスが DB のラウンドトリップに支配されます。チェスの局面は数百バイトで、同時進行数もこの規模のアプリでは限られるため、メモリ保持が現実的です。
 
-ただし**棋譜（`moves`）と対局結果（`games`）は必ず永続化**します。「揮発してよいのは再現可能な派生データだけ」という基準です。局面（FEN）は棋譜から再生できますが、棋譜そのものは失われたら復元できません。
+ただし**棋譜（`moves`）と対局結果（`games`）は必ず永続化**します。「揮発してよいのは再現可能な派生データだけ」という基準です。指し手の保存と終局結果の更新は同一トランザクションで行い、コミット後にだけメモリと WebSocket を更新します。局面（FEN）は最新の `moves.fen_after` から復元できますが、棋譜そのものは失われたら復元できません。
 
-終局時はメモリ上のマップから対局を削除します。ただし参照系（`GET /games/{id}`）はメモリに無ければ DB の `fen` から局面を復元します。削除だけしてこの経路を用意していなかったため、**終了した対局の詳細が 404 になる**不具合がありました（`docs/task-33`）。
+終局時はメモリ上のマップから対局を削除します。ただし参照系（`GET /games/{id}`）と次の指し手は、メモリに無ければ DB に保存した最後の棋譜から局面を復元します。削除だけしてこの経路を用意していなかったため、**終了した対局の詳細が 404 になる**不具合がありました（`docs/task-33`）。また、進行中の対局も再起動後に続行できない問題を task-44 で修正しました。
 
 ### なぜエラーレスポンスを RFC 9457（Problem Details）にしたのか
 
@@ -396,13 +396,14 @@ cargo install sqlx-cli --no-default-features --features rustls,postgres
 ```bash
 git clone https://github.com/CaltDeepL/chess-1.git
 cd chess-1/chess
+cp .env.example .env
 docker compose up --build -d
 curl -f http://localhost:3000/health
 ```
 
-Compose ではコンテナ向けの `DATABASE_URL` を `docker-compose.yml` から注入します。`JWT_SECRET` はローカル開発用の固定値にフォールバックし、`SWEEP_TOKEN` が未設定のため `/internal/sweep` は無効です。
+Compose ではコンテナ向けの `DATABASE_URL` を `docker-compose.yml` から注入し、`JWT_SECRET` / `SWEEP_TOKEN` / `FRONTEND_ORIGIN` は `.env` から渡します。初期値のままなら `JWT_SECRET` は開発用固定値にフォールバックし、`SWEEP_TOKEN` が空なので `/internal/sweep` は無効です。
 
-バックエンドをホスト上で直接起動する場合は `cp .env.example .env` の後、`DATABASE_URL` のポートを Compose の公開ポートに合わせて `5434` に変更してください。`JWT_SECRET` は `openssl rand -hex 32` などで生成し、`/internal/sweep` も試す場合は `SWEEP_TOKEN` を追加します。
+バックエンドをホスト上で直接起動する場合も同じ `.env` を使えます。共有シークレットが必要な動作を試す場合は、`JWT_SECRET` と `SWEEP_TOKEN` を `openssl rand -hex 32` などで生成してください。
 
 マイグレーションは起動時に自動で適用されます。手動で流す場合は sqlx CLI をホスト側で実行します（`chess-1/chess` のまま)。
 
@@ -451,13 +452,13 @@ cargo test
 
 REST は `tower::ServiceExt::oneshot` でルータへ直接リクエストを投げ、HTTP サーバを起動せずにルーティングからハンドラ・DB までを通しで検証しています。WebSocket は `101 Switching Protocols` を伴うため oneshot では扱えず、こちらだけ空きポートで実サーバーを起動します。**同じ `AppState` を共有しているため、oneshot で作った対局が実サーバーの WS ハンドラからも見えます。**
 
-現在 **160 件**のテスト（ユニット 63 / 統合 97）が以下をカバーしています。
+現在 **164 件**のテスト（ユニット 63 / 統合 101）が以下をカバーしています。
 
 | ファイル | 件数 | 内容 |
 |---|---|---|
-| `auth_test.rs` | 13 | 登録・ログイン・ユーザー列挙攻撃対策・パスワード要件 |
-| `game_test.rs` | 12 | 対局参加、指し手の記録、権限・手番・合法性、終了済み対局の取得 |
-| `resign_test.rs` | 5 | 投了の結果反映、再投了、投了後の指し手拒否 |
+| `auth_test.rs` | 14 | 登録・ログイン・DBエラー分類・ユーザー列挙攻撃対策・パスワード要件 |
+| `game_test.rs` | 14 | 対局参加、指し手の連番・記録、再起動相当の局面復元、権限・手番・合法性 |
+| `resign_test.rs` | 6 | 投了の結果反映、参加前・再投了・投了後の操作拒否 |
 | `checkmate_test.rs` | 5 | Fool's mate / Scholar's mate による終局判定 |
 | `ws_test.rs` | 8 | イベント配信・順序・認証・参加者チェック・対局間の隔離 |
 | `abandon_test.rs` | 21 | 切断猶予・両者離席・ログアウト即敗北・sweep・ロック解放 |
@@ -488,7 +489,8 @@ PR（main への直接pushはブランチ保護で拒否）
  ↓
 CI
  ├─ backend:  cargo fmt --check / clippy -D warnings / cargo test / cargo audit
- └─ frontend: tsc -b / eslint / vite build / npm audit
+ ├─ frontend: tsc -b / eslint / vite build / npm audit
+ └─ container: docker compose build / 起動 / migration / health check
 
 レビュー(0人承認でOK) + 全ステータスチェック green
  ↓
@@ -501,7 +503,7 @@ Render Deploy Hook（backend / frontend）
 
 | ワークフロー | トリガー | 内容 |
 |---|---|---|
-| CI | push（main）/ pull_request / 手動 | fmt・clippy・テスト（Postgres サービス付き）・`cargo audit`・フロントの型チェック・ビルド・`npm audit` |
+| CI | push（main）/ pull_request / 手動 | fmt・clippy・テスト・依存監査・フロントビルドに加え、Composeでコンテナを起動して `/health` まで確認 |
 | Deploy | CI の成功（main のみ） | Render の Deploy Hook を起動 |
 | Sweep | 10分間隔 / 手動 | `POST /internal/sweep` を叩き、放置された対局を終了させる |
 
@@ -519,6 +521,8 @@ Render Deploy Hook（backend / frontend）
 | Require status checks | `Backend (Rust)` / `Frontend (React)` |
 
 Classic ではなく現行の Ruleset を使っています。緊急時に Active/Disabled を切り替えられ、Classic のように削除して作り直す必要がないためです。
+
+`Container smoke test` はCI全体の成否とデプロイ可否には反映されます。PRのマージ自体も防ぐには、GitHub側のRulesetで必須チェックへ追加する必要があります。
 
 ### 依存の脆弱性監査
 
@@ -607,23 +611,32 @@ SPA のため、Static Site 側で `/*` → `/index.html` の Rewrite ルール�
 | 40 | major 更新2件の判断（jsonwebtoken 11 への更新と JWT の単体テスト、TypeScript 7 の見送り） |
 | 41 | Cargo の major 更新4件（argon2 / tower-http / rand 削除 / shakmaty） |
 | 42 | CI/CD 運用の整備（ブランチ保護・cargo audit / npm audit・Rust バージョン一元化） |
+| 44 | 全体監査（指し手のDB整合性・再起動復元・重複削除・コンテナ起動テスト） |
 
 ## Future Work
 
-| 項目 | 内容 |
-|---|---|
-| MFA（TOTP） | 2段階認証 |
-| K 値の可変化 | 対局数の少ないうちは変動を大きくする（暫定レーティング） |
-| 再接続時のイベント補完 | 切断中に進んだ手を、再接続後に差分で受け取る |
-| レーティング推移のグラフ | `games` の変動値の累積を可視化 |
-| Dependabot security updates の有効化確認 | リポジトリ設定側のトグル。ファイルからは確認できない |
-| CodeQL / dependency-review-action | いずれも公開リポジトリなら無料。静的解析とPR単位の依存監査 |
-| デプロイ失敗の通知 | Render のデプロイ成否を Webhook などで検知する |
-| コンテナの `HEALTHCHECK` | Dockerfile 単体でも起動後の異常を検知できるようにする |
+task-44 の全体監査を基準に、残タスクを優先度順に整理しています。
+
+| 優先度 | 項目 | 完了条件 |
+|---|---|---|
+| P1 | 認証APIの防御 | register / login のレート制限と、未知ユーザーとのタイミング差対策 |
+| P1 | フロントエンド自動テスト | Vitest + Testing Library で状態・API・主要画面、Playwrightで主要導線を検証 |
+| P1 | WebSocket再接続時の同期 | 切断中のイベントをRESTスナップショットで補完し、盤面・結果・切断状態を一致させる |
+| P1 | 終局とレーティングの回復性 | 終局後にレーティング適用だけ失敗した場合の再試行または同一トランザクション化 |
+| P1 | デプロイ結果の検知 | Deploy Hookの受付だけでなく、Renderの完了・失敗を検知して通知する |
+| P1 | Rulesetの更新 | `Container smoke test` を必須ステータスチェックへ追加 |
+| P2 | セッション保護 | JWTをHttpOnly Cookieへ移し、CSPを導入してXSS時の漏えい範囲を縮小 |
+| P2 | 複数インスタンス対応 | 局面更新をDBロックまたは外部ストアで直列化し、プロセス内キャッシュ依存をなくす |
+| P2 | MFA（TOTP） | 2段階認証を追加 |
+| P2 | 暫定レーティング | 対局数が少ない間だけK値を大きくする |
+| P2 | セキュリティ監査の拡張 | CodeQL / dependency review / コンテナイメージ監査を追加 |
+| P3 | レーティング推移 | 対局ごとの変動値をグラフ表示 |
+| P3 | APIの可観測性 | Problem Details の `instance` とリクエストIDを追加 |
+| P3 | 履歴ページング | 総件数またはカーソルを返し、次ページ有無を正確に判定 |
 
 ## 開発記録
 
-全43タスクの設計判断・つまずいた点・再現コマンドを [`chess/docs/`](chess/docs/) に記録しています。特に、型チェックをすり抜けたバグの傾向は横断的な教訓としてまとめました。
+全44タスクの設計判断・つまずいた点・再現コマンドを [`chess/docs/`](chess/docs/) に記録しています。過去の各ファイルにある「次タスクへの引き継ぎ」は当時のスナップショットで、現在の残タスクの正本は上の Future Work と [task-44](chess/docs/Task_44_全体監査と整合性改善.md) です。
 
 - **API 関数の引数順序の取り違え** — `token` と `id` の位置が逆になるバグが4関数すべてで発生。全引数が `string` 型のため `tsc` をすり抜け、ブラウザで実行して初めて発覚した
 - **ファイル内容の誤混入・保存漏れ** — 関数定義が消えて呼び出し側だけ残る、別ファイル用のコードが書き込まれる、JSX が誤ったスコープに置かれる。**5回発生**しており、貼り付け後の `git diff` 確認を手順に組み込んだ

@@ -84,3 +84,29 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  container-smoke:
+    name: Container smoke test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: chess
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # コンパイル成功だけでは builder/runtime の ABI 不一致を検出できない。
+      # Compose の DB 起動、マイグレーション、HTTP 応答までを確認する。
+      - name: Build and start containers
+        run: docker compose up --build --wait
+
+      - name: Verify health endpoint
+        run: curl -fsS http://localhost:3000/health
+
+      - name: Show application logs on failure
+        if: failure()
+        run: docker compose logs app
+
+      - name: Stop containers
+        if: always()
+        run: docker compose down --volumes

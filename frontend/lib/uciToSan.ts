@@ -7,21 +7,25 @@ import { Chess } from "chess.js";
  * 使い分けは task-22 で決めたもの。変換にはそれまでの手順が必要なので、
  * 1手ずつではなく列ごと渡す。
  *
- * 不正な手が混ざっていた場合はそこで打ち切り、変換できた分までを返す。
- * 例外を投げると棋譜の表示全体が消えてしまうため。
+ * 不正な手が混ざっていても表示全体は落とさず、その手を UCI のまま返す。
+ * サーバーが権威なので通常は起きないが、古い棋譜や破損データを表示する
+ * ときのフォールバックになる。
  */
 export function uciListToSan(ucis: string[]): string[] {
   const chess = new Chess();
   const sans: string[] = [];
 
   for (const uci of ucis) {
-    const move = chess.move({
-      from: uci.slice(0, 2),
-      to: uci.slice(2, 4),
-      promotion: uci.length > 4 ? uci[4] : undefined,
-    });
-    if (!move) break;
-    sans.push(move.san);
+    try {
+      const move = chess.move({
+        from: uci.slice(0, 2),
+        to: uci.slice(2, 4),
+        promotion: uci.length > 4 ? uci[4] : undefined,
+      });
+      sans.push(move.san);
+    } catch {
+      sans.push(uci);
+    }
   }
 
   return sans;

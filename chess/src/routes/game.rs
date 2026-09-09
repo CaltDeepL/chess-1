@@ -119,8 +119,11 @@ pub async fn get_game(
     Path(id): Path<Uuid>,
 ) -> Result<Json<GameDetailResponse>, AppError> {
     let row = sqlx::query_as::<_, GameDetailRow>(
-        "SELECT white_user_id, black_user_id, status::text AS status, result::text AS result, fen \
-         FROM games WHERE id = $1",
+        "SELECT g.white_user_id, g.black_user_id, g.status::text AS status, \
+                g.result::text AS result, \
+                COALESCE((SELECT m.fen_after FROM moves m \
+                          WHERE m.game_id = g.id ORDER BY m.id DESC LIMIT 1), g.fen) AS fen \
+         FROM games g WHERE g.id = $1",
     )
     .bind(id)
     .fetch_optional(&state.db)
@@ -128,7 +131,7 @@ pub async fn get_game(
     .ok_or_else(|| AppError::NotFound("対局が見つかりません".to_string()))?;
 
     // 進行中の対局はメモリ上の局面が正。終局するとメモリから削除されるため、
-    // 無い場合は DB の FEN から局面を復元する。
+    // 無い場合は DB に永続化した最後の指し手の FEN から局面を復元する。
     // (サーバー再起動後の進行中対局もこの経路を通る)
     let position = {
         let games = state.games.read().await;
@@ -239,7 +242,7 @@ pub async fn join_game(
             body = ProblemDetails, content_type = "application/problem+json"),
         (status = 404, description = "対局が見つからない",
             body = ProblemDetails, content_type = "application/problem+json"),
-        (status = 409, description = "既に対局が終了している",
+        (status = 409, description = "対戦相手が未参加、または対局が終了済み",
             body = ProblemDetails, content_type = "application/problem+json"),
     ),
     security(("bearer_auth" = []))
@@ -266,10 +269,13 @@ pub async fn resign_game(
         .ok_or_else(|| AppError::Forbidden("この対局の参加者ではありません".to_string()))?;
 
     // 既に終了している対局への投了は無効
-    if game.status == "finished" {
-        return Err(AppError::Conflict(
-            "この対局は既に終了しています".to_string(),
-        ));
+    if game.status != "in_progress" {
+        let detail = if game.status == "finished" {
+            "この対局は既に終了しています"
+        } else {
+            "対戦相手がまだ参加していません"
+        };
+        return Err(AppError::Conflict(detail.to_string()));
     }
 
     // 投了した側の逆が勝者
@@ -277,7 +283,7 @@ pub async fn resign_game(
 
     let update_result = sqlx::query(
         "UPDATE games SET status = 'finished', result = $1::game_result, end_reason = 'resignation', updated_at = now() \
-         WHERE id = $2 AND status != 'finished'",
+         WHERE id = $2 AND status = 'in_progress'",
     )
     .bind(result)
     .bind(id)
@@ -325,7 +331,7 @@ pub async fn resign_game(
             body = ProblemDetails, content_type = "application/problem+json"),
         (status = 404, description = "対局が見つからない",
             body = ProblemDetails, content_type = "application/problem+json"),
-        (status = 409, description = "対戦相手がまだ参加していない",
+        (status = 409, description = "対戦相手が未参加、または対局が終了済み",
             body = ProblemDetails, content_type = "application/problem+json"),
     ),
     security(("bearer_auth" = []))
@@ -338,8 +344,12 @@ pub async fn make_move(
 ) -> Result<Json<GameStateResponse>, AppError> {
     let user_id = extract_user_id(&headers, &state.jwt_secret)?;
 
-    let game = sqlx::query_as::<_, GameRow>(
-        "SELECT white_user_id, black_user_id, status::text AS status FROM games WHERE id = $1",
+    let game = sqlx::query_as::<_, GameDetailRow>(
+        "SELECT g.white_user_id, g.black_user_id, g.status::text AS status, \
+                g.result::text AS result, \
+                COALESCE((SELECT m.fen_after FROM moves m \
+                          WHERE m.game_id = g.id ORDER BY m.id DESC LIMIT 1), g.fen) AS fen \
+         FROM games g WHERE g.id = $1",
     )
     .bind(id)
     .fetch_optional(&state.db)
@@ -352,6 +362,15 @@ pub async fn make_move(
         ));
     }
 
+    if game.status != "in_progress" {
+        let detail = if game.status == "finished" {
+            "この対局は既に終了しています"
+        } else {
+            "対戦相手がまだ参加していません"
+        };
+        return Err(AppError::Conflict(detail.to_string()));
+    }
+
     let uci_move: UciMove = payload
         .uci
         .parse()
@@ -359,9 +378,12 @@ pub async fn make_move(
 
     let mut games = state.games.write().await;
 
-    let position = games
-        .get_mut(&id)
-        .ok_or_else(|| AppError::NotFound("対局が見つかりません".to_string()))?;
+    // サーバー再起動後はメモリ上の局面が無いため、最後に永続化した棋譜の
+    // FEN から復元する。以降の成功時にキャッシュへ戻す。
+    let position = match games.get(&id) {
+        Some(position) => position.clone(),
+        None => position_from_fen(&game.fen)?,
+    };
 
     let expected = expected_player(position.turn(), game.white_user_id, game.black_user_id)
         .ok_or_else(|| AppError::Conflict("対戦相手がまだ参加していません".to_string()))?;
@@ -372,63 +394,98 @@ pub async fn make_move(
     }
 
     let mv = uci_move
-        .to_move(position)
+        .to_move(&position)
         .map_err(|e| AppError::BadRequest(format!("不正な指し手です: {}", e)))?;
 
-    match position.clone().play(mv) {
+    match position.play(mv) {
         Ok(new_position) => {
-            *position = new_position;
+            let fen_after = position_to_fen(&new_position);
+            let is_check = new_position.is_check();
+            let is_game_over = new_position.is_game_over();
 
-            let fen_after = position_to_fen(position);
-            let move_number = position.fullmoves().get() as i32;
-            let is_check = position.is_check();
-            let is_game_over = position.is_game_over();
+            // 棋譜と終局結果は同じトランザクションで確定する。以前は失敗を
+            // ログだけに残して 200 を返しており、メモリと DB が不整合に
+            // なり得た。コミット後にだけメモリと WebSocket を更新する。
+            let mut tx = state.db.begin().await?;
+            let persisted_status: String =
+                sqlx::query_scalar("SELECT status::text FROM games WHERE id = $1 FOR UPDATE")
+                    .bind(id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            if persisted_status != "in_progress" {
+                return Err(AppError::Conflict(
+                    "この対局は既に終了しています".to_string(),
+                ));
+            }
 
-            if let Err(e) = sqlx::query(
+            let move_number: i32 =
+                sqlx::query_scalar("SELECT count(*)::int + 1 FROM moves WHERE game_id = $1")
+                    .bind(id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+
+            sqlx::query(
                 "INSERT INTO moves (game_id, move_number, uci, fen_after) VALUES ($1, $2, $3, $4)",
             )
             .bind(id)
             .bind(move_number)
             .bind(&payload.uci)
             .bind(&fen_after)
-            .execute(&state.db)
-            .await
-            {
-                tracing::error!(error = %e, %id, "failed to insert move");
-            }
-
-            // 盤面更新後、WebSocket購読者へ指し手を配信(購読者がいなくてもエラーにはしない)
-            let _ = state.game_channel(id).await.send(GameEvent::Move {
-                fen: fen_after.clone(),
-                uci: payload.uci.clone(),
-                is_check,
-                is_game_over,
-            });
+            .execute(&mut *tx)
+            .await?;
 
             if is_game_over {
-                let (result, end_reason) = determine_outcome(position);
+                let (result, end_reason) = determine_outcome(&new_position);
 
-                if let Err(e) = sqlx::query(
+                let updated = sqlx::query(
                     "UPDATE games SET status = 'finished', result = $1::game_result, end_reason = $2, updated_at = now() \
-                     WHERE id = $3",
+                     WHERE id = $3 AND status = 'in_progress'",
                 )
                 .bind(result)
                 .bind(end_reason)
                 .bind(id)
-                .execute(&state.db)
-                .await
-                {
-                    tracing::error!(error = %e, %id, "failed to update game result");
+                .execute(&mut *tx)
+                .await?;
+
+                if updated.rows_affected() == 0 {
+                    return Err(AppError::Conflict(
+                        "この対局は既に終了しています".to_string(),
+                    ));
                 }
+
+                tx.commit().await?;
+                games.remove(&id);
+                drop(games);
 
                 tracing::info!(%id, result, end_reason, "game finished");
 
                 crate::rating::apply_rating(&state.db, id).await?;
 
+                // DB の確定後にだけ配信する。購読者がいなくてもエラーではない。
+                let channel = state.game_channel(id).await;
+                let _ = channel.send(GameEvent::Move {
+                    fen: fen_after.clone(),
+                    uci: payload.uci.clone(),
+                    is_check,
+                    is_game_over,
+                });
+
                 // 終局もあわせて配信
-                let _ = state.game_channel(id).await.send(GameEvent::GameOver {
+                let _ = channel.send(GameEvent::GameOver {
                     result: result.to_string(),
                     end_reason: end_reason.to_string(),
+                });
+            } else {
+                tx.commit().await?;
+                games.insert(id, new_position);
+                drop(games);
+
+                // DB の確定後にだけ配信する。
+                let _ = state.game_channel(id).await.send(GameEvent::Move {
+                    fen: fen_after.clone(),
+                    uci: payload.uci.clone(),
+                    is_check,
+                    is_game_over,
                 });
             }
 
@@ -487,7 +544,8 @@ pub async fn get_moves(
     extract_user_id(&headers, &state.jwt_secret)?;
 
     let moves = sqlx::query_as::<_, MoveRow>(
-        "SELECT move_number, uci, fen_after FROM moves WHERE game_id = $1 ORDER BY move_number ASC",
+        "SELECT row_number() OVER (ORDER BY id)::int AS move_number, uci, fen_after \
+         FROM moves WHERE game_id = $1 ORDER BY id ASC",
     )
     .bind(game_id)
     .fetch_all(&state.db)

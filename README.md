@@ -15,7 +15,7 @@ API は Swagger UI からブラウザ上で試せます。`POST /auth/register` 
 
 > 無料プランで稼働しているため、アクセスがない間はインスタンスが停止します。最初のリクエストは応答まで数十秒かかることがあります。
 
-> **ポートフォリオプロジェクトです。** 全42タスクを完了し、本番環境（Render + Neon）で稼働しています。CI が green のときだけデプロイが走り、`main` はブランチ保護で直接 push できない構成です。
+> **ポートフォリオプロジェクトです。** 全43タスクを完了し、本番環境（Render + Neon）で稼働しています。CI が green のときだけデプロイが走り、`main` はブランチ保護で直接 push できない構成です。
 
 ---
 
@@ -95,7 +95,7 @@ chess-app/
 ├── vite.config.ts            # (frontend/ はソースのみで package.json は無い)
 ├── index.html                # <script src="/frontend/main.tsx">
 ├── chess/                    # バックエンド（Rust）
-│   ├── Dockerfile            # マルチステージビルド
+│   ├── Dockerfile            # マルチステージビルド（builder / runtime とも Debian bookworm）
 │   ├── docker-compose.yml    # Postgres + API
 │   ├── rust-toolchain.toml   # Rust バージョンの一元管理（CI・Docker共通）
 │   ├── .cargo/audit.toml     # cargo audit の ignore（理由付き）
@@ -332,6 +332,12 @@ CI は `dtolnay/rust-toolchain@stable`、Docker は `FROM rust:1.90` 固定と�
 
 Docker 側は `COPY Cargo.toml Cargo.lock rust-toolchain.toml ./` を `cargo build` より前に置く必要があります。ビルドの後にコピーする書き方をすると、レイヤーキャッシュにより**ファイルは存在してもビルドには一切反映されません**。`FROM rust:1.90` にわざと戻してビルドが通ることを確認し、rustup が `rust-toolchain.toml` 経由で正しく 1.96 を取得していることを実証しています。
 
+### なぜ Docker の builder と runtime を同じ Debian 世代に揃えるのか
+
+builder は `rust:1.96-bookworm`、runtime は `debian:bookworm-slim` に固定しています。以前 builder を OS サフィックスのない `rust:1.96` に更新したところ、ベースが Debian trixie に変わり、生成されたバイナリが GLIBC 2.38 を要求する一方、bookworm の runtime は GLIBC 2.36 までしか持たないため、ビルド成功後の起動時に落ちました。
+
+Rust のバージョンは `rust-toolchain.toml`、OS の世代は Dockerfile の `-bookworm` が担保します。CI と `docker compose build` が通るだけでは共有ライブラリの実行時不一致を検出できないため、Docker の変更後は `docker compose up -d` に続けて `curl -f http://localhost:3000/health` まで確認します（`docs/task-43`）。
+
 ### コンテナクエリ単位（cqw）と React Portal
 
 駒のサイズをマス幅に追従させるため CSS のコンテナクエリ単位（`cqw`）を使っていますが、**ドラッグ中の駒だけが肥大化する**現象が起きました。
@@ -390,19 +396,13 @@ cargo install sqlx-cli --no-default-features --features rustls,postgres
 ```bash
 git clone https://github.com/CaltDeepL/chess-1.git
 cd chess-1/chess
-cp .env.example .env
-```
-
-`.env` の `JWT_SECRET` と `SWEEP_TOKEN` は必ず変更してください。
-
-```bash
-openssl rand -hex 32
-```
-
-```bash
 docker compose up --build -d
-curl http://localhost:3000/health
+curl -f http://localhost:3000/health
 ```
+
+Compose ではコンテナ向けの `DATABASE_URL` を `docker-compose.yml` から注入します。`JWT_SECRET` はローカル開発用の固定値にフォールバックし、`SWEEP_TOKEN` が未設定のため `/internal/sweep` は無効です。
+
+バックエンドをホスト上で直接起動する場合は `cp .env.example .env` の後、`DATABASE_URL` のポートを Compose の公開ポートに合わせて `5434` に変更してください。`JWT_SECRET` は `openssl rand -hex 32` などで生成し、`/internal/sweep` も試す場合は `SWEEP_TOKEN` を追加します。
 
 マイグレーションは起動時に自動で適用されます。手動で流す場合は sqlx CLI をホスト側で実行します（`chess-1/chess` のまま)。
 
@@ -584,6 +584,7 @@ SPA のため、Static Site 側で `/*` → `/index.html` の Rewrite ルール�
 |---|---|
 | 24 | Render + Neon への本番デプロイ |
 | 25 | GitHub Actions による CI と、CI 成功時のみのデプロイ |
+| 43 | builder / runtime の ABI 不一致修正（Debian bookworm 固定） |
 
 ### 品質・機能拡張（完了）
 
@@ -606,7 +607,7 @@ SPA のため、Static Site 側で `/*` → `/index.html` の Rewrite ルール�
 | 40 | major 更新2件の判断（jsonwebtoken 11 への更新と JWT の単体テスト、TypeScript 7 の見送り） |
 | 41 | Cargo の major 更新4件（argon2 / tower-http / rand 削除 / shakmaty） |
 | 42 | CI/CD 運用の整備（ブランチ保護・cargo audit / npm audit・Rust バージョン一元化） |
-| 43 | builder/runtime の ABI 不一致修正（GLIBC・5回連続のデプロイ失敗） |
+
 ## Future Work
 
 | 項目 | 内容 |
@@ -617,16 +618,18 @@ SPA のため、Static Site 側で `/*` → `/index.html` の Rewrite ルール�
 | レーティング推移のグラフ | `games` の変動値の累積を可視化 |
 | Dependabot security updates の有効化確認 | リポジトリ設定側のトグル。ファイルからは確認できない |
 | CodeQL / dependency-review-action | いずれも公開リポジトリなら無料。静的解析とPR単位の依存監査 |
+| デプロイ失敗の通知 | Render のデプロイ成否を Webhook などで検知する |
+| コンテナの `HEALTHCHECK` | Dockerfile 単体でも起動後の異常を検知できるようにする |
 
 ## 開発記録
 
-全42タスクの設計判断・つまずいた点・再現コマンドを [`chess/docs/`](chess/docs/) に記録しています。特に、型チェックをすり抜けたバグの傾向は横断的な教訓としてまとめました。
+全43タスクの設計判断・つまずいた点・再現コマンドを [`chess/docs/`](chess/docs/) に記録しています。特に、型チェックをすり抜けたバグの傾向は横断的な教訓としてまとめました。
 
 - **API 関数の引数順序の取り違え** — `token` と `id` の位置が逆になるバグが4関数すべてで発生。全引数が `string` 型のため `tsc` をすり抜け、ブラウザで実行して初めて発覚した
 - **ファイル内容の誤混入・保存漏れ** — 関数定義が消えて呼び出し側だけ残る、別ファイル用のコードが書き込まれる、JSX が誤ったスコープに置かれる。**5回発生**しており、貼り付け後の `git diff` 確認を手順に組み込んだ
 - **型システムがカバーしない境界** — Postgres の ENUM、`verbatimModuleSyntax`、CSS のコンテナクエリ基準、コネクションプールとセッションスコープのロック
 - **テスト自体のバグ** — 検証したいものを検証しなくなっても、テストは緑のまま通り続ける
-- **環境・設定の不一致** — `.env` のポートずれ、PaaS が自動注入する環境変数との衝突、マイグレーションの適用漏れ、ビルド後のプロセス再起動忘れ。いずれもコードとは無関係なエラーとして現れる
+- **環境・設定の不一致** — `.env` のポートずれ、PaaS が自動注入する環境変数との衝突、マイグレーションの適用漏れ、builder / runtime の ABI 不一致、ビルド後のプロセス再起動忘れ。いずれもコードとは無関係なエラーとして現れる
 
 いずれも「ビルドが通ること」では検出できず、**実際にブラウザで動かし、DB の中身を確認し、DevTools でネットワークと DOM を見た**ことで発見に至っています。
 

@@ -64,6 +64,21 @@ async fn black_resign_makes_white_win(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn resign_before_opponent_joins_returns_409(pool: PgPool) {
+    let state = test_state(pool);
+    let white = register_user(&state, "white").await;
+    let game_id = create_game(&state, &white).await;
+
+    let (status, _) = post_auth(&state, &format!("/games/{game_id}/resign"), &white).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+
+    let (db_status, result, end_reason) = fetch_game_row(&state, &game_id).await;
+    assert_eq!(db_status, "waiting");
+    assert!(result.is_none());
+    assert!(end_reason.is_none());
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn resign_twice_returns_409(pool: PgPool) {
     let state = test_state(pool);
     let white = register_user(&state, "white").await;
@@ -79,7 +94,7 @@ async fn resign_twice_returns_409(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn move_after_resign_returns_404(pool: PgPool) {
+async fn move_after_resign_returns_409(pool: PgPool) {
     let state = test_state(pool);
     let white = register_user(&state, "white").await;
     let black = register_user(&state, "black").await;
@@ -88,9 +103,9 @@ async fn move_after_resign_returns_404(pool: PgPool) {
 
     post_auth(&state, &format!("/games/{game_id}/resign"), &white).await;
 
-    // 投了時にメモリ上のマップから削除されるため、以降のmoveは404
+    // メモリ上の局面の有無ではなく、DB の終了状態を見て 409 に統一する。
     let (status, _) = make_move(&state, &game_id, &white, "e2e4").await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(status, StatusCode::CONFLICT);
 }
 
 #[sqlx::test(migrations = "./migrations")]

@@ -34,6 +34,23 @@ async fn register_duplicate_username_returns_409(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn register_database_failure_returns_500(pool: PgPool) {
+    let state = test_state(pool);
+    sqlx::query("DROP TABLE users CASCADE")
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+    let body = serde_json::json!({
+        "username": "alice",
+        "password": "a secure passphrase"
+    });
+    let (status, _) = post_json(&state, "/auth/register", body).await;
+
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn register_short_password_is_rejected(pool: PgPool) {
     let state = test_state(pool);
 
@@ -207,11 +224,9 @@ async fn existing_short_password_can_still_log_in(pool: PgPool) {
     // 新要件を通らない長さのパスワードを、DBに直接作る
     // （register 経由では作れないため）
     let user_id = uuid::Uuid::new_v4();
-    let salt = argon2::password_hash::SaltString::generate(&mut rand::thread_rng());
-    let hash =
-        argon2::PasswordHasher::hash_password(&argon2::Argon2::default(), b"oldpass1", &salt)
-            .unwrap()
-            .to_string();
+    let hash = argon2::PasswordHasher::hash_password(&argon2::Argon2::default(), b"oldpass1")
+        .unwrap()
+        .to_string();
 
     sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, $3)")
         .bind(user_id)

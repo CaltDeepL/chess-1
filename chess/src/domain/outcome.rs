@@ -36,7 +36,7 @@ mod tests {
         for uci in ucis {
             let mv: UciMove = uci.parse().unwrap();
             let mv = mv.to_move(&position).unwrap();
-            position = position.play(&mv).unwrap();
+            position = position.play(mv).unwrap();
         }
         position
     }

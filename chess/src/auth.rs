@@ -1,5 +1,5 @@
 use argon2::{
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    password_hash::{phc::PasswordHash, PasswordHasher, PasswordVerifier},
     Argon2,
 };
 use axum::{extract::State, http::HeaderMap, Json};
@@ -37,9 +37,8 @@ pub async fn register(
     validate_password(&payload.password, &payload.username)
         .map_err(|e| AppError::BadRequest(e.detail()))?;
 
-    let salt = SaltString::generate(&mut rand::thread_rng());
     let password_hash = Argon2::default()
-        .hash_password(payload.password.as_bytes(), &salt)
+        .hash_password(payload.password.as_bytes())
         .map_err(|e| AppError::Internal(format!("パスワードのハッシュ化に失敗しました: {}", e)))?
         .to_string();
 
@@ -52,11 +51,19 @@ pub async fn register(
         .execute(&state.db)
         .await;
 
-    if let Err(e) = result {
-        tracing::warn!(error = %e, "register failed");
-        return Err(AppError::Conflict(
-            "そのユーザー名は既に使われています".to_string(),
-        ));
+    match result {
+        Ok(_) => {}
+        Err(sqlx::Error::Database(error)) if error.is_unique_violation() => {
+            tracing::warn!("register failed: duplicate username");
+            return Err(AppError::Conflict(
+                "そのユーザー名は既に使われています".to_string(),
+            ));
+        }
+        Err(error) => {
+            return Err(AppError::Internal(format!(
+                "ユーザー登録の保存に失敗しました: {error}"
+            )));
+        }
     }
 
     let token = issue_token(user_id, &state.jwt_secret)?;
@@ -172,7 +179,7 @@ pub fn verify_token(token: &str, jwt_secret: &str) -> Result<Uuid, AppError> {
         &Validation::default(),
     )
     .map(|data| data.claims.sub)
-    .map_err(|e| AppError::Unauthorized(format!("トークンが無効です: {}", e)))
+    .map_err(|_| AppError::Unauthorized("トークンが無効です".to_string()))
 }
 
 /// Authorizationヘッダー(Bearer方式)からユーザーIDを取り出すヘルパー
@@ -190,4 +197,153 @@ pub fn extract_user_id(headers: &HeaderMap, jwt_secret: &str) -> Result<Uuid, Ap
     })?;
 
     verify_token(token, jwt_secret)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SECRET: &str = "test-secret-for-unit-tests";
+
+    /// 発行したトークンから同じユーザーIDが取り出せる
+    ///
+    /// jsonwebtoken v11 は暗号バックエンドの明示的な選択（rust_crypto /
+    /// aws_lc_rs）が必須で、指定を忘れると署名・検証時に CryptoProvider が
+    /// 見つからず **panic する**。コンパイルは通るため、この経路を通る
+    /// テストが無いと本番で初めて落ちる。
+    #[test]
+    fn valid_token_round_trips() {
+        let user_id = Uuid::new_v4();
+        let token = issue_token(user_id, SECRET).unwrap();
+
+        assert_eq!(verify_token(&token, SECRET).unwrap(), user_id);
+    }
+
+    /// 期限切れのトークンは拒否される
+    ///
+    /// verify_token は Validation::default() を使っており、有効期限の
+    /// 検証はその既定値に依存している。jsonwebtoken を上げたときに
+    /// 既定値が変わって検証が緩くなっても、コンパイルエラーにはならない。
+    #[test]
+    fn expired_token_is_rejected() {
+        let claims = Claims {
+            sub: Uuid::new_v4(),
+            exp: (chrono::Utc::now() - chrono::Duration::hours(1)).timestamp() as usize,
+        };
+        let token = encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(SECRET.as_bytes()),
+        )
+        .unwrap();
+
+        assert!(
+            verify_token(&token, SECRET).is_err(),
+            "期限切れのトークンが通ってしまった"
+        );
+    }
+
+    /// 有効期限内なら受け入れる
+    ///
+    /// 上の expired_token_is_rejected だけだと「常に拒否している」実装でも
+    /// 通ってしまうため、対になる確認を置く
+    #[test]
+    fn token_within_expiry_is_accepted() {
+        let user_id = Uuid::new_v4();
+        let claims = Claims {
+            sub: user_id,
+            exp: (chrono::Utc::now() + chrono::Duration::minutes(1)).timestamp() as usize,
+        };
+        let token = encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(SECRET.as_bytes()),
+        )
+        .unwrap();
+
+        assert_eq!(verify_token(&token, SECRET).unwrap(), user_id);
+    }
+
+    /// 別の鍵で署名されたトークンは拒否される
+    #[test]
+    fn token_signed_with_another_secret_is_rejected() {
+        let token = issue_token(Uuid::new_v4(), "secret-a").unwrap();
+
+        assert!(
+            verify_token(&token, "secret-b").is_err(),
+            "署名の検証が効いていない"
+        );
+    }
+
+    /// 改ざんされたトークンは拒否される
+    #[test]
+    fn tampered_token_is_rejected() {
+        let token = issue_token(Uuid::new_v4(), SECRET).unwrap();
+        // ペイロード部（2番目のセグメント）の末尾を1文字変える
+        let mut parts: Vec<&str> = token.split('.').collect();
+        let tampered_payload = format!("{}A", parts[1]);
+        parts[1] = &tampered_payload;
+        let tampered = parts.join(".");
+
+        assert!(verify_token(&tampered, SECRET).is_err());
+    }
+
+    /// Authorization ヘッダーから取り出せる
+    #[test]
+    fn extract_user_id_reads_the_bearer_header() {
+        let user_id = Uuid::new_v4();
+        let token = issue_token(user_id, SECRET).unwrap();
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {token}").parse().unwrap(),
+        );
+
+        assert_eq!(extract_user_id(&headers, SECRET).unwrap(), user_id);
+    }
+
+    /// Bearer 形式でないヘッダーは拒否される
+    #[test]
+    fn extract_user_id_rejects_a_malformed_header() {
+        let token = issue_token(Uuid::new_v4(), SECRET).unwrap();
+
+        let mut headers = HeaderMap::new();
+        // Bearer プレフィックスなし
+        headers.insert(axum::http::header::AUTHORIZATION, token.parse().unwrap());
+
+        assert!(extract_user_id(&headers, SECRET).is_err());
+    }
+
+    /// ヘッダーが無ければ拒否される
+    #[test]
+    fn extract_user_id_rejects_a_missing_header() {
+        let headers = HeaderMap::new();
+
+        assert!(extract_user_id(&headers, SECRET).is_err());
+    }
+
+    /// argon2 0.5.3 で生成した PHC 文字列を、現在の argon2 で検証できる
+    ///
+    /// 0.5→0.6 では実機で確認した(パスワード不一致の401とハッシュ
+    /// パース失敗の500を区別して切り分けた)が、口頭の確認は次に argon2 を
+    /// 上げたときには残らない。実際にDBへ保存されていた値をテストに
+    /// 焼き込むことで、将来のバージョンアップでも同じ確認を強制する。
+    #[test]
+    fn old_argon2_hash_is_still_verifiable() {
+        // 2026-09-06 に argon2 0.5.3 で生成された実際のPHC文字列
+        // (ローカルDBの menutest_a_1788721987864 から取得)
+        const STORED_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$/xAsZkGG+krK6wW7XvIS4g$kFyhYJ7Mjwbmf4PvsKHdawFuQkcOQA8CNz07a2Es1MQ";
+        const ITS_PASSWORD: &str = "menu test secret password";
+
+        let parsed =
+            PasswordHash::new(STORED_HASH).expect("旧バージョンのPHC文字列がパースできない");
+
+        assert!(
+            Argon2::default()
+                .verify_password(ITS_PASSWORD.as_bytes(), &parsed)
+                .is_ok(),
+            "旧バージョンで作られたハッシュを検証できない"
+        );
+    }
 }

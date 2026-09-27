@@ -15,7 +15,7 @@ API は Swagger UI からブラウザ上で試せます。`POST /auth/register` 
 
 > 無料プランで稼働しているため、アクセスがない間はインスタンスが停止します。最初のリクエストは応答まで数十秒かかることがあります。
 
-> **ポートフォリオプロジェクトです。** 全36タスクを完了し、本番環境（Render + Neon）で稼働しています。CI が green のときだけデプロイが走る構成です。
+> **ポートフォリオプロジェクトです。** 全45タスクを完了し、本番環境（Render + Neon）で稼働しています。CI が green のときだけデプロイが走り、`main` はブランチ保護で直接 push できない構成です。
 
 ---
 
@@ -82,19 +82,23 @@ API は Swagger UI からブラウザ上で試せます。`POST /auth/register` 
         GitHub Actions
 ```
 
-進行中の局面は `Arc<RwLock<HashMap<Uuid, Chess>>>` でメモリに、確定した情報（ユーザー・対局結果・棋譜・レーティング）は PostgreSQL に置いています。
+進行中の局面は `Arc<RwLock<HashMap<Uuid, Chess>>>` をホットキャッシュとして使い、確定した情報（ユーザー・対局結果・棋譜・レーティング）は PostgreSQL に置いています。サーバー再起動などでキャッシュが失われた場合は、永続化済み棋譜の最新 `fen_after` から局面を復元します。
 
 ### ディレクトリ構成
 
 ```
 chess-app/
-├── .github/workflows/        # ci.yml / deploy.yml / sweep.yml
+├── .github/
+│   ├── workflows/            # ci.yml / deploy.yml / sweep.yml
+│   └── dependabot.yml        # Cargo / npm / GitHub Actions（グループ化・週1）
 ├── package.json              # Vite プロジェクトのルートはリポジトリ直下
 ├── vite.config.ts            # (frontend/ はソースのみで package.json は無い)
 ├── index.html                # <script src="/frontend/main.tsx">
 ├── chess/                    # バックエンド（Rust）
-│   ├── Dockerfile            # マルチステージビルド
+│   ├── Dockerfile            # マルチステージビルド（builder / runtime とも Debian bookworm）
 │   ├── docker-compose.yml    # Postgres + API
+│   ├── rust-toolchain.toml   # Rust バージョンの一元管理（CI・Docker共通）
+│   ├── .cargo/audit.toml     # cargo audit の ignore（理由付き）
 │   ├── migrations/           # sqlx マイグレーション
 │   ├── docs/                 # タスクごとの設計メモ
 │   └── src/
@@ -187,9 +191,9 @@ WebSocket の `onopen` は TCP と upgrade の完了しか意味しません。�
 
 1手ごとに局面を DB へ書き戻すと、対局中のレスポンスが DB のラウンドトリップに支配されます。チェスの局面は数百バイトで、同時進行数もこの規模のアプリでは限られるため、メモリ保持が現実的です。
 
-ただし**棋譜（`moves`）と対局結果（`games`）は必ず永続化**します。「揮発してよいのは再現可能な派生データだけ」という基準です。局面（FEN）は棋譜から再生できますが、棋譜そのものは失われたら復元できません。
+ただし**棋譜（`moves`）と対局結果（`games`）は必ず永続化**します。「揮発してよいのは再現可能な派生データだけ」という基準です。指し手の保存と終局結果の更新は同一トランザクションで行い、コミット後にだけメモリと WebSocket を更新します。局面（FEN）は最新の `moves.fen_after` から復元できますが、棋譜そのものは失われたら復元できません。
 
-終局時はメモリ上のマップから対局を削除します。ただし参照系（`GET /games/{id}`）はメモリに無ければ DB の `fen` から局面を復元します。削除だけしてこの経路を用意していなかったため、**終了した対局の詳細が 404 になる**不具合がありました（`docs/task-33`）。
+終局時はメモリ上のマップから対局を削除します。ただし参照系（`GET /games/{id}`）と次の指し手は、メモリに無ければ DB に保存した最後の棋譜から局面を復元します。削除だけしてこの経路を用意していなかったため、**終了した対局の詳細が 404 になる**不具合がありました（`docs/task-33`）。また、進行中の対局も再起動後に続行できない問題を task-44 で修正しました。
 
 ### なぜエラーレスポンスを RFC 9457（Problem Details）にしたのか
 
@@ -320,6 +324,20 @@ sqlx CLI での手動適用に頼っていたところ、ローカル DB への�
 
 起動時に `sqlx::migrate!()` を実行する形にし、ローカル・本番とも適用漏れが構造的に起きないようにしました。本番へのマイグレーション適用が手動だった問題も同時に解消しています。
 
+### Rust バージョンを `rust-toolchain.toml` で一元化する
+
+CI は `dtolnay/rust-toolchain@stable`、Docker は `FROM rust:1.90` 固定と、**バージョンを決める場所が2つ**ありました。依存の MSRV が上がったとき（shakmaty 0.30 が rustc 1.95 を要求）、ローカルと CI（常に最新の stable）は通るのに **Docker のビルドだけが落ちる**状態になり、`docker compose build` を実際に実行するまで気づけませんでした（テストも CI も緑のまま）。
+
+`chess/rust-toolchain.toml` にバージョンを1箇所で宣言し、CI からは `dtolnay/rust-toolchain@stable` のステップ自体を削除しました。ランナーには rustup が入っており、`cargo` の初回実行時にこのファイルを読んで指定バージョンを自動取得します。`stable` ではなく具体的なバージョンを書くことで、依存の MSRV が上がれば CI がそこで落ちるようになります（意図した挙動）。
+
+Docker 側は `COPY Cargo.toml Cargo.lock rust-toolchain.toml ./` を `cargo build` より前に置く必要があります。ビルドの後にコピーする書き方をすると、レイヤーキャッシュにより**ファイルは存在してもビルドには一切反映されません**。`FROM rust:1.90` にわざと戻してビルドが通ることを確認し、rustup が `rust-toolchain.toml` 経由で正しく 1.96 を取得していることを実証しています。
+
+### なぜ Docker の builder と runtime を同じ Debian 世代に揃えるのか
+
+builder は `rust:1.96-bookworm`、runtime は `debian:bookworm-slim` に固定しています。以前 builder を OS サフィックスのない `rust:1.96` に更新したところ、ベースが Debian trixie に変わり、生成されたバイナリが GLIBC 2.38 を要求する一方、bookworm の runtime は GLIBC 2.36 までしか持たないため、ビルド成功後の起動時に落ちました。
+
+Rust のバージョンは `rust-toolchain.toml`、OS の世代は Dockerfile の `-bookworm` が担保します。CI と `docker compose build` が通るだけでは共有ライブラリの実行時不一致を検出できないため、Docker の変更後は `docker compose up -d` に続けて `curl -f http://localhost:3000/health` まで確認します（`docs/task-43`）。
+
 ### コンテナクエリ単位（cqw）と React Portal
 
 駒のサイズをマス幅に追従させるため CSS のコンテナクエリ単位（`cqw`）を使っていますが、**ドラッグ中の駒だけが肥大化する**現象が起きました。
@@ -364,7 +382,7 @@ pub fn decide(white_at: Option<DateTime<Utc>>, black_at: Option<DateTime<Utc>>, 
 
 - Docker / Docker Compose
 - Node.js
-- Rust 1.90 以降（ローカルでビルドする場合）
+- rustup（ローカルでビルドする場合。バージョンは `chess/rust-toolchain.toml` が指定し、`cargo` 実行時に自動で取得されます）
 - sqlx-cli（マイグレーションを手動実行する場合。通常は起動時に自動適用されます）
 
 ```bash
@@ -379,18 +397,13 @@ cargo install sqlx-cli --no-default-features --features rustls,postgres
 git clone https://github.com/CaltDeepL/chess-1.git
 cd chess-1/chess
 cp .env.example .env
-```
-
-`.env` の `JWT_SECRET` と `SWEEP_TOKEN` は必ず変更してください。
-
-```bash
-openssl rand -hex 32
-```
-
-```bash
 docker compose up --build -d
-curl http://localhost:3000/health
+curl -f http://localhost:3000/health
 ```
+
+Compose ではコンテナ向けの `DATABASE_URL` を `docker-compose.yml` から注入し、`JWT_SECRET` / `SWEEP_TOKEN` / `FRONTEND_ORIGIN` は `.env` から渡します。初期値のままなら `JWT_SECRET` は開発用固定値にフォールバックし、`SWEEP_TOKEN` が空なので `/internal/sweep` は無効です。
+
+バックエンドをホスト上で直接起動する場合も同じ `.env` を使えます。共有シークレットが必要な動作を試す場合は、`JWT_SECRET` と `SWEEP_TOKEN` を `openssl rand -hex 32` などで生成してください。
 
 マイグレーションは起動時に自動で適用されます。手動で流す場合は sqlx CLI をホスト側で実行します（`chess-1/chess` のまま)。
 
@@ -439,15 +452,15 @@ cargo test
 
 REST は `tower::ServiceExt::oneshot` でルータへ直接リクエストを投げ、HTTP サーバを起動せずにルーティングからハンドラ・DB までを通しで検証しています。WebSocket は `101 Switching Protocols` を伴うため oneshot では扱えず、こちらだけ空きポートで実サーバーを起動します。**同じ `AppState` を共有しているため、oneshot で作った対局が実サーバーの WS ハンドラからも見えます。**
 
-現在 **150 件**のテスト（ユニット 54 / 統合 96）が以下をカバーしています。
+現在 **164 件**のテスト（ユニット 63 / 統合 101）が以下をカバーしています。
 
 | ファイル | 件数 | 内容 |
 |---|---|---|
-| `auth_test.rs` | 13 | 登録・ログイン・ユーザー列挙攻撃対策・パスワード要件 |
-| `game_test.rs` | 12 | 対局参加、指し手の記録、権限・手番・合法性、終了済み対局の取得 |
-| `resign_test.rs` | 5 | 投了の結果反映、再投了、投了後の指し手拒否 |
+| `auth_test.rs` | 14 | 登録・ログイン・DBエラー分類・ユーザー列挙攻撃対策・パスワード要件 |
+| `game_test.rs` | 14 | 対局参加、指し手の連番・記録、再起動相当の局面復元、権限・手番・合法性 |
+| `resign_test.rs` | 6 | 投了の結果反映、参加前・再投了・投了後の操作拒否 |
 | `checkmate_test.rs` | 5 | Fool's mate / Scholar's mate による終局判定 |
-| `ws_test.rs` | 7 | イベント配信・順序・認証・参加者チェック・対局間の隔離 |
+| `ws_test.rs` | 8 | イベント配信・順序・認証・参加者チェック・対局間の隔離 |
 | `abandon_test.rs` | 21 | 切断猶予・両者離席・ログアウト即敗北・sweep・ロック解放 |
 | `rating_test.rs` | 7 | 経路別の適用、ゼロサム、二重適用の防止 |
 | `ranking_test.rs` | 8 | 順位付け、同着、認証任意、自分の順位 |
@@ -455,7 +468,7 @@ REST は `tower::ServiceExt::oneshot` でルータへ直接リクエストを投
 | `problem_details_test.rs` | 3 | Content-Type・`type`・`status` の検証 |
 | `openapi_test.rs` | 6 | 仕様の配信、パス数の一致、`ProblemDetails` の参照 |
 
-これに加え、`domain` 層（手番・終局・勝者・履歴・Elo・パスワード・切断判定）のユニットテストが 54 件あります。I/O を持たない純粋関数なので DB なしで実行でき、一瞬で終わります。
+これに加え、ユニットテストが63件あります。うち54件は `domain` 層（手番・終局・勝者・履歴・Elo・パスワード・切断判定）、9件は `auth` 層（JWTの発行・検証・改ざん検知に加え、旧バージョンの argon2 で生成した PHC 文字列が今のバージョンでも検証できるかの互換性テスト）です。いずれも I/O を持たない純粋関数・処理なので DB なしで実行でき、一瞬で終わります。
 
 **結果が確定する経路では、API のステータスコードだけでなく `games` テーブルの中身まで assert しています。** 過去に「API は 200 を返すのに DB が更新されていない」というサイレント障害を見逃した経験があるためです（`docs/task-07`）。
 
@@ -472,12 +485,15 @@ REST は `tower::ServiceExt::oneshot` でルータへ直接リクエストを投
 ## CI / CD
 
 ```
-PR
+PR（main への直接pushはブランチ保護で拒否）
  ↓
 CI
- ├─ backend:  cargo fmt --check / clippy -D warnings / cargo test
- └─ frontend: tsc -b / eslint / vite build
+ ├─ backend:  cargo fmt --check / clippy -D warnings / cargo test / cargo audit
+ ├─ frontend: tsc -b / eslint / vite build / npm audit
+ └─ container: docker compose build / 起動 / migration / health check
 
+レビュー(0人承認でOK) + 全ステータスチェック green
+ ↓
 main merge
  ↓
 CI green
@@ -487,11 +503,32 @@ Render Deploy Hook（backend / frontend）
 
 | ワークフロー | トリガー | 内容 |
 |---|---|---|
-| CI | push（main）/ pull_request / 手動 | fmt・clippy・テスト（Postgres サービス付き）・フロントの型チェックとビルド |
+| CI | push（main）/ pull_request / 手動 | fmt・clippy・テスト・依存監査・フロントビルドに加え、Composeでコンテナを起動して `/health` まで確認 |
 | Deploy | CI の成功（main のみ） | Render の Deploy Hook を起動 |
 | Sweep | 10分間隔 / 手動 | `POST /internal/sweep` を叩き、放置された対局を終了させる |
 
 **Render の auto-deploy は無効にしています。** auto-deploy は `main` への push を検知して即座にビルドを始めるため、テストの結果を待ちません。`workflow_run` イベントで CI の完了と結果を受け取り、成功時に限って Deploy Hook を叩く構成にしています。
+
+### ブランチ保護（Ruleset）
+
+`main` への直接 push を GitHub の Ruleset で禁止しています（`docs/task-42`）。従来は「CI が落ちていればデプロイは止まる」という `workflow_run` の防御しか無く、**CI を通さないコードが `main` に入ること自体は防げていませんでした**（このプロジェクトの開発中に実際に直接 push が通ってしまったのが発端です）。
+
+| 項目 | 設定 |
+|---|---|
+| Enforcement | Active |
+| Restrict deletions / Block force pushes | 有効 |
+| Require a pull request | 有効（Required approvals は **0**。1人開発では1以上にすると自分の PR を自分で承認できず何もマージできなくなる） |
+| Require status checks | `Backend (Rust)` / `Frontend (React)` |
+
+Classic ではなく現行の Ruleset を使っています。緊急時に Active/Disabled を切り替えられ、Classic のように削除して作り直す必要がないためです。
+
+`Container smoke test` はCI全体の成否とデプロイ可否には反映されます。PRのマージ自体も防ぐには、GitHub側のRulesetで必須チェックへ追加する必要があります。
+
+### 依存の脆弱性監査
+
+Dependabot は「新しいバージョンが出た／脆弱性が公開された」ときに PR を出しますが、放置すれば脆弱なままです。CI に `cargo audit` / `npm audit` を追加し、**push・PR のたびに `Cargo.lock` / `package-lock.json` 全体を検査**しています。
+
+RUSTSEC-2023-0071（`rsa` のタイミングサイドチャネル、修正版なし）は `chess/.cargo/audit.toml` で ignore していますが、`cargo tree -i rsa --target all` が何も返さない（＝どのターゲットでもビルドされない、実行されないコードは攻撃経路にならない）ことを確認したうえで、**無視してよい理由と見直しの契機をファイルにコメントとして残しています**。理由のない ignore は、理由が消えたバージョンピン（`docs/task-39` の `uuid = "=1.10.0"`）と同じ末路をたどるためです。
 
 ## Deployment
 
@@ -551,6 +588,7 @@ SPA のため、Static Site 側で `/*` → `/index.html` の Rewrite ルール�
 |---|---|
 | 24 | Render + Neon への本番デプロイ |
 | 25 | GitHub Actions による CI と、CI 成功時のみのデプロイ |
+| 43 | builder / runtime の ABI 不一致修正（Debian bookworm 固定） |
 
 ### 品質・機能拡張（完了）
 
@@ -570,26 +608,42 @@ SPA のため、Static Site 側で `/*` → `/index.html` の Rewrite ルール�
 | 37 | パスワード入力の改善（表示トグル・要件の案内） |
 | 38 | Dependabot の導入（Cargo / npm / GitHub Actions、グループ化） |
 | 39 | axum 0.8 系への移行 |
+| 40 | major 更新2件の判断（jsonwebtoken 11 への更新と JWT の単体テスト、TypeScript 7 の見送り） |
+| 41 | Cargo の major 更新4件（argon2 / tower-http / rand 削除 / shakmaty） |
+| 42 | CI/CD 運用の整備（ブランチ保護・cargo audit / npm audit・Rust バージョン一元化） |
+| 44 | 全体監査（指し手のDB整合性・再起動復元・重複削除・コンテナ起動テスト） |
+| 45 | rustls RUSTSEC-2026-0285 対応（0.23.45・SQLx の不要な既定機能を無効化） |
 
 ## Future Work
 
-| 項目 | 内容 |
-|---|---|
-| Dependabot | Cargo / npm / GitHub Actions の依存更新 |
-| MFA（TOTP） | 2段階認証 |
-| K 値の可変化 | 対局数の少ないうちは変動を大きくする（暫定レーティング） |
-| 再接続時のイベント補完 | 切断中に進んだ手を、再接続後に差分で受け取る |
-| レーティング推移のグラフ | `games` の変動値の累積を可視化 |
+task-44 の全体監査を基準に、残タスクを優先度順に整理しています。
+
+| 優先度 | 項目 | 完了条件 |
+|---|---|---|
+| P1 | 認証APIの防御 | register / login のレート制限と、未知ユーザーとのタイミング差対策 |
+| P1 | フロントエンド自動テスト | Vitest + Testing Library で状態・API・主要画面、Playwrightで主要導線を検証 |
+| P1 | WebSocket再接続時の同期 | 切断中のイベントをRESTスナップショットで補完し、盤面・結果・切断状態を一致させる |
+| P1 | 終局とレーティングの回復性 | 終局後にレーティング適用だけ失敗した場合の再試行または同一トランザクション化 |
+| P1 | デプロイ結果の検知 | Deploy Hookの受付だけでなく、Renderの完了・失敗を検知して通知する |
+| P1 | Rulesetの更新 | `Container smoke test` を必須ステータスチェックへ追加 |
+| P2 | セッション保護 | JWTをHttpOnly Cookieへ移し、CSPを導入してXSS時の漏えい範囲を縮小 |
+| P2 | 複数インスタンス対応 | 局面更新をDBロックまたは外部ストアで直列化し、プロセス内キャッシュ依存をなくす |
+| P2 | MFA（TOTP） | 2段階認証を追加 |
+| P2 | 暫定レーティング | 対局数が少ない間だけK値を大きくする |
+| P2 | セキュリティ監査の拡張 | CodeQL / dependency review / コンテナイメージ監査を追加 |
+| P3 | レーティング推移 | 対局ごとの変動値をグラフ表示 |
+| P3 | APIの可観測性 | Problem Details の `instance` とリクエストIDを追加 |
+| P3 | 履歴ページング | 総件数またはカーソルを返し、次ページ有無を正確に判定 |
 
 ## 開発記録
 
-全36タスクの設計判断・つまずいた点・再現コマンドを [`chess/docs/`](chess/docs/) に記録しています。特に、型チェックをすり抜けたバグの傾向は横断的な教訓としてまとめました。
+全45タスクの設計判断・つまずいた点・再現コマンドを [`chess/docs/`](chess/docs/) に記録しています。過去の各ファイルにある「次タスクへの引き継ぎ」は当時のスナップショットで、現在の残タスクの正本は上の Future Work と [task-44](chess/docs/Task_44_全体監査と整合性改善.md) です。
 
 - **API 関数の引数順序の取り違え** — `token` と `id` の位置が逆になるバグが4関数すべてで発生。全引数が `string` 型のため `tsc` をすり抜け、ブラウザで実行して初めて発覚した
 - **ファイル内容の誤混入・保存漏れ** — 関数定義が消えて呼び出し側だけ残る、別ファイル用のコードが書き込まれる、JSX が誤ったスコープに置かれる。**5回発生**しており、貼り付け後の `git diff` 確認を手順に組み込んだ
 - **型システムがカバーしない境界** — Postgres の ENUM、`verbatimModuleSyntax`、CSS のコンテナクエリ基準、コネクションプールとセッションスコープのロック
 - **テスト自体のバグ** — 検証したいものを検証しなくなっても、テストは緑のまま通り続ける
-- **環境・設定の不一致** — `.env` のポートずれ、PaaS が自動注入する環境変数との衝突、マイグレーションの適用漏れ、ビルド後のプロセス再起動忘れ。いずれもコードとは無関係なエラーとして現れる
+- **環境・設定の不一致** — `.env` のポートずれ、PaaS が自動注入する環境変数との衝突、マイグレーションの適用漏れ、builder / runtime の ABI 不一致、ビルド後のプロセス再起動忘れ。いずれもコードとは無関係なエラーとして現れる
 
 いずれも「ビルドが通ること」では検出できず、**実際にブラウザで動かし、DB の中身を確認し、DevTools でネットワークと DOM を見た**ことで発見に至っています。
 

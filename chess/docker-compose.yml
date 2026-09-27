@@ -7,7 +7,12 @@ services:
       POSTGRES_PASSWORD: chess
       POSTGRES_DB: chess_db
     ports:
-      - "5434:5432"   # 5433 → 5434 に変更
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chess -d chess_db"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
     networks:
       - chess-net
     volumes:
@@ -17,9 +22,13 @@ services:
     build: .
     container_name: chess-server
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgres://chess:chess@db:5432/chess_db
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+      SWEEP_TOKEN: ${SWEEP_TOKEN:-}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5173,http://localhost:5174,http://localhost:5175}
     ports:
       - "3000:3000"
     networks:

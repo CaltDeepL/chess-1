@@ -1,30 +1,9 @@
 import { useEffect, useMemo, useRef } from "react";
-import { Chess } from "chess.js";
+import { uciListToSan } from "../lib/uciToSan";
 import type { MoveRow } from "../types";
 
 interface MoveHistoryProps {
   moves: MoveRow[];
-}
-
-// UCI表記("e2e4"/"e7e8q"等)をSAN(標準代数記法、"e4"/"Nf3"/"O-O"/"Qxe5+"等)に変換する。
-// サーバー(shakmaty)が権威の指し手をUCIで送ってくるため、表示用にchess.jsで
-// 手順を最初から再生してSANを復元する(合法手ハイライトと同じ「表示専用」の使い方)。
-function toSan(moves: MoveRow[]): string[] {
-  const chess = new Chess();
-  const sans: string[] = [];
-  for (const m of moves) {
-    try {
-      const from = m.uci.slice(0, 2);
-      const to = m.uci.slice(2, 4);
-      const promotion = m.uci.length > 4 ? m.uci.slice(4) : undefined;
-      const result = chess.move({ from, to, promotion });
-      sans.push(result.san);
-    } catch {
-      // 想定外の形式ならUCIのまま表示してフォールバックする(表示専用のため落とさない)
-      sans.push(m.uci);
-    }
-  }
-  return sans;
 }
 
 export default function MoveHistory({ moves }: MoveHistoryProps) {
@@ -34,7 +13,7 @@ export default function MoveHistory({ moves }: MoveHistoryProps) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [moves.length]);
 
-  const sans = useMemo(() => toSan(moves), [moves]);
+  const sans = useMemo(() => uciListToSan(moves.map((move) => move.uci)), [moves]);
 
   // 1手ずつ(白番→黒番)を1行にまとめる
   const rows: { number: number; white?: string; black?: string }[] = [];

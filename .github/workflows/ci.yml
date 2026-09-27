@@ -13,6 +13,8 @@ jobs:
   backend:
     name: Backend (Rust)
     runs-on: ubuntu-latest
+   
+    
 
     services:
       postgres:
@@ -38,11 +40,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: chess
@@ -55,6 +52,11 @@ jobs:
 
       - name: Test
         run: cargo test --all-targets
+      - name: Security audit
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
+        working-directory: chess
 
   frontend:
     name: Frontend (React)
@@ -67,9 +69,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          
 
       - name: Install
         run: npm ci
+      - name: npm audit
+        run: npm audit --audit-level=moderate
 
       - name: Type check
         run: npx tsc -b --force
@@ -79,3 +84,29 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  container-smoke:
+    name: Container smoke test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: chess
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # コンパイル成功だけでは builder/runtime の ABI 不一致を検出できない。
+      # Compose の DB 起動、マイグレーション、HTTP 応答までを確認する。
+      - name: Build and start containers
+        run: docker compose up --build --wait
+
+      - name: Verify health endpoint
+        run: curl -fsS http://localhost:3000/health
+
+      - name: Show application logs on failure
+        if: failure()
+        run: docker compose logs app
+
+      - name: Stop containers
+        if: always()
+        run: docker compose down --volumes

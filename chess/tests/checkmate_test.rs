@@ -79,7 +79,7 @@ async fn scholars_mate_records_white_win(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn move_after_checkmate_is_rejected(pool: PgPool) {
+async fn checkmate_removes_cached_position_and_rejects_further_moves(pool: PgPool) {
     let state = test_state(pool);
     let (game_id, white, black) = setup_game(&state).await;
 
@@ -88,11 +88,15 @@ async fn move_after_checkmate_is_rejected(pool: PgPool) {
     make_move(&state, &game_id, &white, "g2g4").await;
     make_move(&state, &game_id, &black, "d8h4").await;
 
-    // 終局後に指そうとしても受け付けない
-    // (checkmate後もstate.gamesから局面は削除されない[resignとは異なる]ため404にはならず、
-    // チェックメイト局面ではどの手も合法手判定[shakmaty]に必ず失敗するため400になる)
+    let id = Uuid::parse_str(&game_id).unwrap();
+    assert!(
+        !state.games.read().await.contains_key(&id),
+        "終局した局面はメモリから削除される"
+    );
+
+    // 終局後に指そうとしても、合法手判定へ進む前に状態で拒否する。
     let (status, _) = make_move(&state, &game_id, &white, "e2e4").await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(status, StatusCode::CONFLICT);
 }
 
 #[sqlx::test(migrations = "./migrations")]

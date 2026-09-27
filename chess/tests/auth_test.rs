@@ -34,6 +34,23 @@ async fn register_duplicate_username_returns_409(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn register_database_failure_returns_500(pool: PgPool) {
+    let state = test_state(pool);
+    sqlx::query("DROP TABLE users CASCADE")
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+    let body = serde_json::json!({
+        "username": "alice",
+        "password": "a secure passphrase"
+    });
+    let (status, _) = post_json(&state, "/auth/register", body).await;
+
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn register_short_password_is_rejected(pool: PgPool) {
     let state = test_state(pool);
 

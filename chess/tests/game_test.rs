@@ -122,6 +122,23 @@ async fn cannot_move_out_of_turn(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn cannot_move_before_opponent_joins(pool: PgPool) {
+    let state = test_state(pool);
+    let white = register_user(&state, "white").await;
+    let game_id = create_game(&state, &white).await;
+
+    let (status, _) = make_move(&state, &game_id, &white, "e2e4").await;
+
+    assert_eq!(status, StatusCode::CONFLICT);
+    let move_count: i64 = sqlx::query_scalar("SELECT count(*) FROM moves WHERE game_id = $1")
+        .bind(Uuid::parse_str(&game_id).unwrap())
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    assert_eq!(move_count, 0);
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn illegal_move_is_rejected(pool: PgPool) {
     let state = test_state(pool);
     let white = register_user(&state, "white").await;
@@ -158,14 +175,46 @@ async fn alternating_moves_are_recorded_in_order(pool: PgPool) {
     make_move(&state, &game_id, &black, "e7e5").await;
     make_move(&state, &game_id, &white, "g1f3").await;
 
-    let rows = sqlx::query("SELECT uci FROM moves WHERE game_id = $1 ORDER BY id")
-        .bind(Uuid::parse_str(&game_id).unwrap())
-        .fetch_all(&state.db)
-        .await
-        .unwrap();
+    let rows =
+        sqlx::query("SELECT move_number, uci FROM moves WHERE game_id = $1 ORDER BY move_number")
+            .bind(Uuid::parse_str(&game_id).unwrap())
+            .fetch_all(&state.db)
+            .await
+            .unwrap();
 
     let ucis: Vec<String> = rows.iter().map(|r| r.get::<String, _>("uci")).collect();
+    let move_numbers: Vec<i32> = rows
+        .iter()
+        .map(|r| r.get::<i32, _>("move_number"))
+        .collect();
     assert_eq!(ucis, vec!["e2e4", "e7e5", "g1f3"]);
+    assert_eq!(move_numbers, vec![1, 2, 3]);
+}
+
+/// サーバー再起動などでメモリ上の局面が失われても、永続化済みの棋譜から
+/// 復元して対局を続けられる。
+#[sqlx::test(migrations = "./migrations")]
+async fn move_recovers_position_from_persisted_history(pool: PgPool) {
+    let state = test_state(pool);
+    let white = register_user(&state, "white").await;
+    let black = register_user(&state, "black").await;
+    let game_id = create_game(&state, &white).await;
+    post_auth(&state, &format!("/games/{game_id}/join"), &black).await;
+
+    let (status, _) = make_move(&state, &game_id, &white, "e2e4").await;
+    assert_eq!(status, StatusCode::OK);
+
+    let id = Uuid::parse_str(&game_id).unwrap();
+    state.games.write().await.remove(&id);
+
+    let (status, move_body) = make_move(&state, &game_id, &black, "e7e5").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(move_body["fen"].as_str().unwrap().contains(" w "));
+
+    let (status, body) = get_json(&state, &format!("/games/{game_id}")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["fen"], move_body["fen"]);
+    assert!(body["fen"].as_str().unwrap().contains(" w "));
 }
 
 /// 投了で終了した対局も GET /games/:id で取得できる。

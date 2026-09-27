@@ -19,8 +19,8 @@ argon2 = "0.6"
 jsonwebtoken = { version = "11", default-features = false, features = ["aws_lc_rs"] }
 chrono = { version = "0.4", features = ["serde"] }
 dotenvy = "0.15"
-utoipa = { version = "5", features = ["axum_extras", "uuid", "chrono"] }
-utoipa-axum = "0.2"
+utoipa = { version = "6", features = ["axum_extras", "uuid", "chrono"] }
+utoipa-axum = "0.3"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

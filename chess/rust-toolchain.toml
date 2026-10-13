@@ -17,5 +17,5 @@
 #   3. cargo test / clippy / docker compose build がすべて通ることを確認
 
 [toolchain]
-channel = "1.96"
+channel = "1.99"
 components = ["rustfmt", "clippy"]

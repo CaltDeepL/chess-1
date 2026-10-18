@@ -17,6 +17,18 @@ API は Swagger UI からブラウザ上で試せます。`POST /auth/register` 
 
 > **ポートフォリオプロジェクトです。** 全48タスクを完了し、本番環境（Render + Neon）で稼働しています。CI が green のときだけデプロイが走り、`main` はブランチ保護で直接 push できない構成です。
 
+> 📝 **開発記事（Zenn）**：[Rust（axum + WebSocket）でオンライン対戦チェスを作った話](https://zenn.dev/zennpay/articles/03b051997dbbf5)
+> 「状態をどこに置き、誰が正しさを保証するか」の設計と、実際にハマったところを記事にまとめています。
+
+### スクリーンショット
+
+| 対局画面 | 対局履歴 | ロビー |
+|---|---|---|
+| ![対局画面](chess/docs/images/game.png) | ![対局履歴](chess/docs/images/history.png) | ![ロビー](chess/docs/images/lobby.png) |
+| 盤面・棋譜（SAN）・接続 LED・相手のレーティング | 勝敗・終局理由・レーティングの変動 | 参加待ちの対局をタイル表示・自動更新 |
+
+画面のデータはローカル環境に投入したサンプルです。
+
 ---
 
 ## なぜ作ったか
@@ -291,7 +303,7 @@ WHERE id = $2 AND black_user_id IS NULL
 
 | 領域 | 技術 |
 |---|---|
-| バックエンド | Rust 1.96 / axum 0.8 |
+| バックエンド | Rust 1.99 / axum 0.8 |
 | チェスルール判定 | shakmaty |
 | DB | PostgreSQL 16 |
 | DB アクセス | sqlx（ORM 不使用） |
@@ -334,7 +346,7 @@ Docker 側は `COPY Cargo.toml Cargo.lock rust-toolchain.toml ./` を `cargo bui
 
 ### なぜ Docker の builder と runtime を同じ Debian 世代に揃えるのか
 
-builder は `rust:1.96-bookworm`、runtime は `debian:bookworm-slim` に固定しています。以前 builder を OS サフィックスのない `rust:1.96` に更新したところ、ベースが Debian trixie に変わり、生成されたバイナリが GLIBC 2.38 を要求する一方、bookworm の runtime は GLIBC 2.36 までしか持たないため、ビルド成功後の起動時に落ちました。
+builder は `rust:1.99-bookworm`、runtime は `debian:bookworm-slim` に固定しています。以前 builder を OS サフィックスのない `rust:1.96` に更新したところ、ベースが Debian trixie に変わり、生成されたバイナリが GLIBC 2.38 を要求する一方、bookworm の runtime は GLIBC 2.36 までしか持たないため、ビルド成功後の起動時に落ちました。
 
 Rust のバージョンは `rust-toolchain.toml`、OS の世代は Dockerfile の `-bookworm` が担保します。CI と `docker compose build` が通るだけでは共有ライブラリの実行時不一致を検出できないため、Docker の変更後は `docker compose up -d` に続けて `curl -f http://localhost:3000/health` まで確認します（`docs/task-43`）。
 
@@ -617,6 +629,13 @@ SPA のため、Static Site 側で `/*` → `/index.html` の Rewrite ルール�
 | 47 | Dependabot 運用復旧（YAML 構文修正・密結合する major update の統合手順） |
 | 48 | rustls RUSTSEC-2026-0346〜0349 対応（0.23.46・`Cargo.lock` のみ） |
 
+### タスク以外のメンテナンス
+
+| 日付 | 内容 |
+|---|---|
+| 2026-10-13 | npm の脆弱性対応（`brace-expansion` 5.0.9 → 5.0.12、`source-map-js` 1.2.1 → 1.2.2。`package-lock.json` のみ） |
+| 2026-10-14 | Rust 1.96 → 1.99（`rust-toolchain.toml` と Dockerfile の builder を同時に更新） |
+
 ## Future Work
 
 task-44 の全体監査を基準に、残タスクを優先度順に整理しています。
@@ -643,10 +662,18 @@ task-44 の全体監査を基準に、残タスクを優先度順に整理して
 全48タスクの設計判断・つまずいた点・再現コマンドを [`chess/docs/`](chess/docs/) に記録しています。過去の各ファイルにある「次タスクへの引き継ぎ」は当時のスナップショットで、現在の残タスクの正本は上の Future Work と [task-44](chess/docs/Task_44_全体監査と整合性改善.md) です。
 
 - **API 関数の引数順序の取り違え** — `token` と `id` の位置が逆になるバグが4関数すべてで発生。全引数が `string` 型のため `tsc` をすり抜け、ブラウザで実行して初めて発覚した
-- **ファイル内容の誤混入・保存漏れ** — 関数定義が消えて呼び出し側だけ残る、別ファイル用のコードが書き込まれる、JSX が誤ったスコープに置かれる。**5回発生**しており、貼り付け後の `git diff` 確認を手順に組み込んだ
+- **ファイル内容の誤混入・保存漏れ** — 関数定義が消えて呼び出し側だけ残る、別ファイル用のコードが書き込まれる、JSX が誤ったスコープに置かれる。**6回発生**しており（[task-37](chess/docs/Task_37_パスワード入力の改善.md) に一覧）、貼り付け後の `git diff` 確認を手順に組み込んだ
 - **型システムがカバーしない境界** — Postgres の ENUM、`verbatimModuleSyntax`、CSS のコンテナクエリ基準、コネクションプールとセッションスコープのロック
 - **テスト自体のバグ** — 検証したいものを検証しなくなっても、テストは緑のまま通り続ける
 - **環境・設定の不一致** — `.env` のポートずれ、PaaS が自動注入する環境変数との衝突、マイグレーションの適用漏れ、builder / runtime の ABI 不一致、ビルド後のプロセス再起動忘れ。いずれもコードとは無関係なエラーとして現れる
+
+特に影響の大きかった3件は、[開発記事](https://zenn.dev/zennpay/articles/03b051997dbbf5)の「ハマったところ」で詳しく書いています。
+
+| 事象 | README の該当箇所 |
+|---|---|
+| テストも CI も緑なのに、本番が5回連続で壊れていた（MSRV → GLIBC） | [なぜ Docker の builder と runtime を同じ Debian 世代に揃えるのか](#なぜ-docker-の-builder-と-runtime-を同じ-debian-世代に揃えるのか) |
+| advisory lock をプールで取ったら、掃除が二度と走らなくなる | [なぜ advisory lock をプールではなく専用の接続で取るのか](#なぜ-advisory-lock-をプールではなく専用の接続で取るのか) |
+| API は 200 なのに DB が更新されていない（ENUM のキャスト漏れ） | [PostgreSQL の ENUM 型と Rust の橋渡し](#postgresql-の-enum-型と-rust-の橋渡し) |
 
 いずれも「ビルドが通ること」では検出できず、**実際にブラウザで動かし、DB の中身を確認し、DevTools でネットワークと DOM を見た**ことで発見に至っています。
 

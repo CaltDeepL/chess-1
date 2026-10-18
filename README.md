@@ -22,12 +22,15 @@ API は Swagger UI からブラウザ上で試せます。`POST /auth/register` 
 
 ### スクリーンショット
 
-| 対局画面 | 対局履歴 | ロビー |
-|---|---|---|
-| ![対局画面](chess/docs/images/game.png) | ![対局履歴](chess/docs/images/history.png) | ![ロビー](chess/docs/images/lobby.png) |
-| 盤面・棋譜（SAN）・接続 LED・相手のレーティング | 勝敗・終局理由・レーティングの変動 | 参加待ちの対局をタイル表示・自動更新 |
+| ロビー | 対局画面 |
+|---|---|
+| ![ロビー](chess/docs/images/lobby.png) | ![対局画面](chess/docs/images/game.png) |
+| 参加待ちの対局をタイル表示・自動更新 | 盤面・棋譜（SAN）・接続 LED・相手のレーティング |
 
-画面のデータはローカル環境に投入したサンプルです。
+| 対局履歴 | ランキング |
+|---|---|
+| ![対局履歴](chess/docs/images/history.png) | ![ランキング](chess/docs/images/ranking.png) |
+| 勝敗・手番・終局理由・レーティングの変動 | Elo レーティング順。自分の行を強調表示 |
 
 ---
 

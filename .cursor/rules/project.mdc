@@ -1,0 +1,15 @@
+---
+description: chess-1 の基本ルール
+alwaysApply: true
+---
+
+# chess-1
+
+- 詳細なルールはリポジトリ直下の `CLAUDE.md`、設計の背景は `README.md` を正とする
+- バックエンドは `chess/`（Rust / Axum / SQLx）、フロントは `frontend/`（`package.json` はリポジトリ直下）
+- バックエンドの変更後は `cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test --all-targets` を通す
+- フロントの変更後は `npx tsc -b --force`、`npm run lint`、`npm run build` を通す
+- エラー応答は RFC 9457。ドメインロジックは `chess/src/domain/` の純粋関数に置く
+- マイグレーションはタイムスタンプ形式のファイル名。ローカル DB はホストの 5434
+- タスクは GitHub Issue で管理し、作業メモも Issue に書く
+- `.env` や秘密情報をコミット・出力しない

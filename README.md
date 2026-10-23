@@ -106,6 +106,7 @@ chess-app/
 ├── .github/
 │   ├── workflows/            # ci.yml / deploy.yml / sweep.yml
 │   └── dependabot.yml        # Cargo / npm / GitHub Actions（グループ化・週1）
+├── CLAUDE.md                 # AI エージェント向けの作業ガイド（.cursor/rules/ も同じ内容の要約）
 ├── package.json              # Vite プロジェクトのルートはリポジトリ直下
 ├── vite.config.ts            # (frontend/ はソースのみで package.json は無い)
 ├── index.html                # <script src="/frontend/main.tsx">
@@ -115,7 +116,7 @@ chess-app/
 │   ├── rust-toolchain.toml   # Rust バージョンの一元管理（CI・Docker共通）
 │   ├── .cargo/audit.toml     # cargo audit の ignore（理由付き）
 │   ├── migrations/           # sqlx マイグレーション
-│   ├── docs/                 # タスクごとの設計メモ
+│   ├── docs/                 # タスクごとの設計メモ（2026-10-24 以降は GitHub Issue に記録）
 │   └── src/
 │       ├── main.rs           # 起動処理・マイグレーション適用
 │       ├── lib.rs            # ルータ組み立て・OpenAPI 仕様

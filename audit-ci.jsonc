@@ -1,0 +1,10 @@
+{
+  "$schema": "https://github.com/IBM/audit-ci/raw/main/docs/schema.json",
+  "moderate": true,
+  "allowlist": [
+    // minimatch <11.0.1 (DoS). eslint / @eslint/config-array / @typescript-eslint/typescript-estree
+    // がすべて minimatch ^10 を要求しており、修正版を入れられない。開発時ツールのみで本番ビルドには入らない。
+    // 見直し条件: eslint と typescript-eslint が minimatch 11 以上に対応したら、この行を削除する。
+    "GHSA-g3hv-75wg-m249"
+  ]
+}

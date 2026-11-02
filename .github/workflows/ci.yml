@@ -74,7 +74,7 @@ jobs:
       - name: Install
         run: npm ci
       - name: npm audit
-        run: npm audit --audit-level=moderate
+        run: npx --yes audit-ci@7.1.0 --config audit-ci.jsonc
 
       - name: Type check
         run: npx tsc -b --force

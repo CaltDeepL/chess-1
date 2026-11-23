@@ -1656,9 +1656,9 @@ dependencies = [
 
 [[package]]
 name = "shakmaty"
-version = "0.30.2"
+version = "0.30.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d465a6a07031a8c60d92dc9b656cc8f59f8c1640493576d5d88f898883b4bd67"
+checksum = "112f34413cdc32e9c15d74798cd57583bfc228c42e8dd30570d1af62305fcdc4"
 dependencies = [
  "arrayvec",
  "bitflags",
@@ -2365,9 +2365,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.29.0"
+version = "1.29.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a0e2d11620c50695fe12bbbfde96b3477fe606e7284c22d505c12ce51214514"
+checksum = "3c14b15dffa2f4bd712103e857140aa04a4f2ff6e955c77d7eb8e53ee02a3b64"
 dependencies = [
  "getrandom 0.4.3",
  "js-sys",
